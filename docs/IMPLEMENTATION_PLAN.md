@@ -5,11 +5,11 @@ Complete one stage, run its acceptance checks, update evidence/status, and stop 
 
 | Stage | Objective | Exit criteria | Initial status |
 |---|---|---|---|
-| 0 | Audit specification/project; inventory, risks, docs skeleton | Existing state and unknowns reported; no assumed features | NOT STARTED |
-| 1 | App/repo foundation, design tokens, responsive shell, health check | App starts from documented command; responsive shell and health route checked | NOT STARTED |
-| 2 | Independent PayPal Sandbox proof | Real OAuth token and supported invoice operation/retrieval evidenced | NOT STARTED |
-| 3 | PayPal adapter and isolated mock mode | Adapter contract tested; mode explicit; errors handled | NOT STARTED |
-| 4 | Persistence, ownership, seed/reset | CRUD persisted; cross-owner access denied | NOT STARTED |
+| 0 | Audit specification/project; inventory, risks, docs skeleton | Existing state and unknowns reported; no assumed features | VERIFIED (2026-10-31; `docs/DOCUMENTATION_AUDIT.md`) |
+| 1 | App/repo foundation, design tokens, responsive shell, health check | App starts from documented command; responsive shell and health route checked | VERIFIED (2026-10-31; `npm test` 6/6, `npx playwright test` 2/2 desktop + 360px mobile) |
+| 2 | Independent PayPal Sandbox proof | Real OAuth token and supported invoice operation/retrieval evidenced | VERIFIED (2026-10-31; `npm run paypal:sandbox:verify` passed live OAuth + create/retrieve/send/retrieve `INV2-WHS9-X55V-Y6AJ-HAAQ`) |
+| 3 | PayPal adapter and isolated mock mode | Adapter contract tested; mode explicit; errors handled | VERIFIED (2026-10-31; `tests/unit/paypalAdapter.test.ts` 6/6 passed + `npm run paypal:adapter:verify` live Sandbox `INV2-M6YP-NTGY-TRXS-W5FN`) |
+| 4 | Persistence, ownership, seed/reset | CRUD persisted; cross-owner access denied | VERIFIED (2026-10-31; on-disk SQLite WAL schema & repository, `tests/unit/persistence.test.ts` 6/6 passed, `npm run db:seed:demo` verified) |
 | 5 | Clients and conventional invoice workflow | Draft create/edit/detail and validation work without AI | NOT STARTED |
 | 6 | Approval slip/action safety/Activity | Discard does not execute; only explicit approval can execute | NOT STARTED |
 | 7 | Gemini agent tools | Structured output validated; clarification and fallback work | NOT STARTED |

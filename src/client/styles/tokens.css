@@ -1,0 +1,427 @@
+/* InvoicePilot Design System — Exact Tokens from docs/UI_UX_DESIGN.md */
+
+:root,
+[data-theme="light"] {
+  --desk: #EEF0F3;
+  --sheet: #FFFFFF;
+  --sheet-2: #E4E8ED;
+  --ink: #151A21;
+  --ink-muted: #566070;
+  --rule: #D3D8DF;
+  --primary: #0E5A6B;
+  --on-primary: #FFFFFF;
+  --highlight: #F4D35E;
+  --paid: #1B7F4B;
+  --late: #B3362B;
+  --caution: #9A6200;
+  --info: #2F5FA8;
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --desk: #0F151C;
+  --sheet: #17202A;
+  --sheet-2: #1F2A36;
+  --ink: #E7ECF1;
+  --ink-muted: #98A5B5;
+  --rule: #2C3947;
+  --primary: #5CC3D0;
+  --on-primary: #07161A;
+  --highlight: #E9C441;
+  --paid: #4FD38E;
+  --late: #FF7A6E;
+  --caution: #F0B450;
+  --info: #7FAEF0;
+  color-scheme: dark;
+}
+
+:root {
+  --font-ui: "Hanken Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-serif: "Newsreader", Georgia, "Times New Roman", serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--desk);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Tabular numerals for financial amounts and aligned numeric tables */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.serif-document {
+  font-family: var(--font-serif);
+}
+
+/* Accessible focus ring */
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Skip link for keyboard users */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0.5rem;
+  z-index: 1000;
+  padding: 0.5rem 1rem;
+  background-color: var(--primary);
+  color: var(--on-primary);
+  text-decoration: none;
+  font-weight: 600;
+  border: 1px solid var(--rule);
+}
+
+.skip-link:focus {
+  left: 0.5rem;
+}
+
+/* App Shell Layout — No gradients, fine ledger rules, deliberate whitespace */
+.app-shell {
+  min-height: 100vh;
+  max-width: 100%;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--desk);
+  color: var(--ink);
+}
+
+.shell-header {
+  background-color: var(--sheet);
+  border-bottom: 1px solid var(--rule);
+  padding: 0.75rem 1.25rem;
+}
+
+.shell-header-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.brand-group {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.brand-title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 1.375rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.brand-subtitle {
+  font-size: 0.875rem;
+  color: var(--ink-muted);
+}
+
+.header-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.625rem;
+}
+
+/* Explicit Sandbox vs Mock Mode Badge — status never relies on color alone */
+.mode-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.625rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  border: 1px solid var(--rule);
+  background-color: var(--sheet-2);
+  color: var(--ink);
+}
+
+.mode-badge[data-mode="sandbox"] {
+  border-left: 3px solid var(--info);
+}
+
+.mode-badge[data-mode="mock"] {
+  border-left: 3px solid var(--caution);
+}
+
+.theme-fieldset {
+  margin: 0;
+  padding: 0.125rem;
+  border: 1px solid var(--rule);
+  background-color: var(--sheet-2);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+.theme-legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.theme-btn {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-muted);
+  font-family: var(--font-ui);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  padding: 0.25rem 0.5rem;
+  cursor: pointer;
+}
+
+.theme-btn[aria-pressed="true"] {
+  background-color: var(--sheet);
+  color: var(--ink);
+  border-color: var(--rule);
+  font-weight: 600;
+}
+
+/* Workspace Body */
+.shell-body {
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 1.25rem;
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 1.5rem;
+  flex: 1;
+}
+
+.ledger-nav {
+  background-color: var(--sheet);
+  border: 1px solid var(--rule);
+  padding: 1rem;
+  align-self: start;
+}
+
+.ledger-nav-heading {
+  margin: 0 0 0.75rem 0;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-muted);
+  font-weight: 600;
+}
+
+.ledger-nav-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.ledger-nav-btn {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 0.5rem 0.625rem;
+  font-family: var(--font-ui);
+  font-size: 0.9375rem;
+  color: var(--ink);
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ledger-nav-btn:hover {
+  background-color: var(--sheet-2);
+}
+
+.ledger-nav-btn[aria-current="page"] {
+  background-color: var(--sheet-2);
+  border-color: var(--rule);
+  border-left: 3px solid var(--primary);
+  font-weight: 600;
+}
+
+/* Paper Ledger Sheet */
+.ledger-sheet {
+  background-color: var(--sheet);
+  border: 1px solid var(--rule);
+  padding: 1.5rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.sheet-header {
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 1rem;
+  margin-bottom: 1.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.sheet-title {
+  margin: 0 0 0.25rem 0;
+  font-family: var(--font-serif);
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.sheet-lead {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 0.9375rem;
+}
+
+/* Signature Perforated Approval Slip Banner */
+.approval-slip-callout {
+  background-color: var(--sheet);
+  border: 1px solid var(--rule);
+  border-top: 2px dashed var(--rule);
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.approval-slip-highlight {
+  display: inline-block;
+  background-color: var(--highlight);
+  color: #151A21;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.125rem 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+/* Fine-ruled Ledger Table */
+.ledger-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.ledger-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+}
+
+.ledger-table th,
+.ledger-table td {
+  padding: 0.625rem 0.75rem;
+  border-bottom: 1px solid var(--rule);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.ledger-table th {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+  font-weight: 600;
+  background-color: var(--sheet-2);
+}
+
+.action-btn {
+  appearance: none;
+  background-color: var(--primary);
+  color: var(--on-primary);
+  border: 1px solid var(--primary);
+  padding: 0.5rem 0.875rem;
+  font-family: var(--font-ui);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.action-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.125rem 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  border: 1px solid var(--rule);
+  background-color: var(--sheet-2);
+}
+
+.status-pill[data-tone="paid"] {
+  border-left: 3px solid var(--paid);
+}
+
+.status-pill[data-tone="caution"] {
+  border-left: 3px solid var(--caution);
+}
+
+.status-pill[data-tone="late"] {
+  border-left: 3px solid var(--late);
+}
+
+.shell-footer {
+  border-top: 1px solid var(--rule);
+  background-color: var(--sheet);
+  padding: 0.75rem 1.25rem;
+  font-size: 0.8125rem;
+  color: var(--ink-muted);
+}
+
+.shell-footer-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+/* Responsive behavior down to 360px mobile width */
+@media (max-width: 768px) {
+  .shell-header {
+    padding: 0.75rem 0.875rem;
+  }
+
+  .shell-body {
+    grid-template-columns: 1fr;
+    padding: 0.875rem;
+    gap: 1rem;
+  }
+
+  .ledger-sheet {
+    padding: 1rem;
+  }
+}

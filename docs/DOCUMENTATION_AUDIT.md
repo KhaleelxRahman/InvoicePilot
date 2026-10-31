@@ -105,3 +105,45 @@ This audit inspected the repository file tree, Git status, and the complete cont
 
 **Statement of limitation:** This audit did **not** verify any application features, runtime behavior, external API connectivity, PayPal Sandbox operations, Gemini calls, or tests beyond the repository file evidence inspected—because no application code or test suite exists in the repository at this time.
 
+---
+
+## 6. Stage 00 — Specification and Project Audit Report (2026-10-31)
+
+### 6.1 Codebase, Runtime & Environment Inventory (Observed Facts vs. Assumptions)
+- **Observed Repository Files (Tracked in Git `HEAD` at `095f3b4`):**
+  - `README.md` (root project title and 1-line description)
+  - `.reticle/.gitignore` (Reticle local artifact ignore list)
+  - `docs/*.md` (20 core specification files + 5 governance/index files)
+  - `.agents/rules/invoicepilot-core.md` and `.agents/rules/invoicepilot-quality-git.md` (persistent workspace rules)
+- **Observed Pre-Existing Working Tree Items (Preserved Untouched):**
+  - `.agents/rules/invoicepilot-quality-git.md` (1 trailing blank line in working copy)
+  - `InvoicePilot/` (untracked nested duplicate copy of repository files)
+- **Observed Absent Items:**
+  - `MASTER_BUILD_DIRECTIVE.md` and `InvoicePilot_FINAL.md` are **absent** from both the repository root (`c:\Users\KhaleelLocal\Documents\Documents\InvoicePilot`) and its parent directory (`c:\Users\KhaleelLocal\Documents\Documents`).
+  - Zero `package.json`, lockfiles, TypeScript configs, frontend/backend source files, database schemas/migrations, `.env` or `.env.example` files, root `.gitignore`, or automated tests exist in the repository.
+- **Observed Local Host Runtime Capabilities:**
+  - OS: Windows
+  - Node.js: `v24.22.1`
+  - npm / npx: `11.19.1`
+  - Git: `2.56.0.windows.3`
+
+### 6.2 Recommended Smallest Dependable Architecture
+To satisfy all requirements in `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/DATABASE.md`, `docs/AUTH_SECURITY.md`, `docs/UI_UX_DESIGN.md`, and `.agents/rules/invoicepilot-quality-git.md` on the verified local Node.js v24 environment without unnecessary multi-service complexity:
+1. **Runtime & Language:** Node.js (`v24.x`) + TypeScript across both client and server in a single repository.
+2. **Frontend (`src/client`):** React + TypeScript + Vite, styled with CSS custom properties implementing the exact Light/Dark/System design tokens (`desk`, `sheet`, `sheet-2`, `ink`, `ink-muted`, `rule`, `primary`, `on-primary`, `highlight`, `paid`, `late`, `caution`, `info`) and typography (`Hanken Grotesk`, `Newsreader`, tabular numerals) from `docs/UI_UX_DESIGN.md`.
+3. **Application Server (`src/server`):** Express (or Fastify) HTTP API server enforcing session authentication, owner/tenant authorization on every read and mutation, Zod schema validation, integer minor-unit financial math, the approval state machine (`DRAFTED -> PENDING_APPROVAL -> APPROVED -> EXECUTING -> EXECUTED` + terminal states), Gemini structured-output tool parsing with conventional form fallback, and the PayPal adapter (`sandbox` default vs. visibly labeled `mock` mode).
+4. **Database (`DATABASE.md`):** SQLite (via Node's built-in `node:sqlite` or `better-sqlite3` with deterministic SQL migrations and seed/reset scripts). Keeps setup self-contained and reproducible from a clean clone while supporting transactions, foreign keys, unique idempotency constraints, and strict owner/demo-tenant isolation.
+5. **Authentication (`AUTH_SECURITY.md`):** Server-managed HTTP-only signed session authentication with password hashing (`scrypt`/`argon2`) for authenticated users plus a strictly isolated Demo Tenant session whose reset touches only demo-scoped records.
+6. **Testing & E2E (`TESTING_QA_DEBUGGING.md` & Quality Rule):** Vitest for unit/integration tests and Playwright (`@playwright/test`) for mandatory desktop + 360px mobile E2E verification.
+7. **Justification / Deviations from Source Spec:** No deviation from `docs/ARCHITECTURE.md` or `docs/PRD.md`—those documents intentionally left the specific Node web framework, single database engine, and single auth mechanism open pending Stage 0 inspection.
+
+### 6.3 Next Allowed Implementation Task (Stage 01 — App/Repo Foundation)
+Per `docs/IMPLEMENTATION_PLAN.md`, the next stage is **Stage 01: App/repo foundation, design tokens, responsive shell, health check**.
+
+**Stage 01 Acceptance Criteria:**
+1. Root `.gitignore` and `.env.example` (names and blank values only, defaulting `PAYPAL_MODE=sandbox`) exist and protect secrets/artifacts from being tracked.
+2. `package.json`, TypeScript config, Vite + Express build/dev scripts, and Playwright E2E configuration exist and run cleanly on Node.js v24.
+3. `GET /api/health` returns HTTP 200 JSON with service status and explicit provider mode (`sandbox` or `mock`) without exposing secrets.
+4. Responsive application shell renders at desktop and 360px mobile viewports using the exact `UI_UX_DESIGN.md` light/dark/system color tokens and `Hanken Grotesk` / `Newsreader` typography, with visible mode labeling and zero dead controls or console errors.
+5. Automated unit/health checks and Playwright E2E tests verify the running app shell, theme switching, 360px responsiveness, and `/api/health` endpoint.
+

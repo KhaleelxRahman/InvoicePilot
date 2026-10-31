@@ -13,7 +13,7 @@ Proposed contract. Routes must be reconciled with the actual server before imple
 ## Candidate route inventory
 | Method | Route | Purpose | Status |
 |---|---|---|---|
-| GET | `/api/health` | App health check | NOT STARTED |
+| GET | `/api/health` | App health check | VERIFIED (Stage 01 — 2026-10-31; `tests/unit/health.test.ts` & `tests/e2e/stage01-foundation.spec.ts`) |
 | GET/POST | `/api/clients` | List/create clients | NOT STARTED |
 | GET/PATCH/DELETE | `/api/clients/:id` | Read/update/delete owned client | NOT STARTED |
 | GET/POST | `/api/invoices` | List/create local draft | NOT STARTED |
