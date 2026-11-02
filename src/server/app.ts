@@ -30,6 +30,7 @@ import {
   type ReminderRecord
 } from './db/repository.js';
 import { GeminiInvoiceAgent } from './agent/geminiAgent.js';
+import { AsyncInvoicePilotRepository } from './db/asyncRepository.js';
 
 function parseCookies(cookieHeader?: string): Record<string, string> {
   const list: Record<string, string> = {};
@@ -74,11 +75,11 @@ function clearSessionCookie(res: Response): void {
   );
 }
 
-function resolveOwnerUserId(req: Request, repo: InvoicePilotRepository): string | null {
+async function resolveOwnerUserId(req: Request, repo: any): Promise<string | null> {
   const token = resolveSessionToken(req);
   if (token !== null) {
     if (!token) return null;
-    const sessionResult = repo.getSessionByToken(token);
+    const sessionResult = await repo.getSessionByToken(token);
     if (!sessionResult) {
       return null;
     }
@@ -95,7 +96,7 @@ function resolveOwnerUserId(req: Request, repo: InvoicePilotRepository): string 
     ) {
       return null;
     }
-    const user = repo.getUserById(trimmed);
+    const user = await repo.getUserById(trimmed);
     return user ? user.id : null;
   }
 
@@ -103,7 +104,7 @@ function resolveOwnerUserId(req: Request, repo: InvoicePilotRepository): string 
     return null;
   }
 
-  const demoUser = repo.getUserById(DEMO_TENANT_USER_ID);
+  const demoUser = await repo.getUserById(DEMO_TENANT_USER_ID);
   return demoUser ? demoUser.id : null;
 }
 
@@ -246,19 +247,24 @@ export function createApiApp(
     (config.databaseUrl && (isPostgresDatabaseUrl(config.databaseUrl) || !isNetlify))
   );
 
-  let repo: InvoicePilotRepository;
+  let repo: any;
   let demoTenantReady = false;
 
   if (repository) {
     repo = repository;
-    demoTenantReady = Boolean(repo.getUserById(DEMO_TENANT_USER_ID));
+    demoTenantReady = Boolean((repo as any).getUserById ? (repo as any).getUserById(DEMO_TENANT_USER_ID) : false);
   } else if (isDbConfigured) {
     const db = openAndMigrateDatabase(config.databaseUrl);
-    repo = new InvoicePilotRepository(db);
-    if (!repo.getUserById(DEMO_TENANT_USER_ID)) {
-      repo.resetAndSeedDemoTenant();
+    if (isPostgresDatabaseUrl(config.databaseUrl) && config.databaseUrl !== ':memory-postgres:') {
+      repo = new AsyncInvoicePilotRepository(db);
+      demoTenantReady = true;
+    } else {
+      repo = new InvoicePilotRepository(db);
+      if (!repo.getUserById(DEMO_TENANT_USER_ID)) {
+        repo.resetAndSeedDemoTenant();
+      }
+      demoTenantReady = Boolean(repo.getUserById(DEMO_TENANT_USER_ID));
     }
-    demoTenantReady = Boolean(repo.getUserById(DEMO_TENANT_USER_ID));
   } else {
     // Unconfigured repository placeholder for serverless environments awaiting Supabase DATABASE_URL
     repo = new Proxy({} as InvoicePilotRepository, {
@@ -317,7 +323,7 @@ export function createApiApp(
   });
 
   // Stage 1, 3, 4, 5, 6, 7, 8 & 9: Health check route with explicit adapter, database, Gemini & Auth metadata
-  app.get('/api/health', (_req: Request, res: Response) => {
+  app.get('/api/health', async (req: Request, res: Response, next: NextFunction) => {
     const dbConfigured = Boolean(app.locals.databaseConfigured);
     res.status(200).json({
       status: dbConfigured ? 'ok' : 'degraded',
@@ -356,7 +362,7 @@ export function createApiApp(
   });
 
   // Require valid owner session for all protected /api/clients and /api/invoices routes
-  function requireOwner(req: Request, res: Response): string | null {
+  async function requireOwner(req: Request, res: Response): Promise<string | null> {
     const explicitHeader = req.header('x-session-user-id');
     if (explicitHeader !== undefined) {
       const trimmed = explicitHeader.trim();
@@ -378,7 +384,7 @@ export function createApiApp(
 
     const rawToken = resolveSessionToken(req);
     if (rawToken) {
-      const sessionResult = repo.getSessionByToken(rawToken);
+      const sessionResult = await repo.getSessionByToken(rawToken);
       if (!sessionResult) {
         res.status(401).json({
           error: {
@@ -392,7 +398,7 @@ export function createApiApp(
       return sessionResult.user.id;
     }
 
-    const ownerId = resolveOwnerUserId(req, repo);
+    const ownerId = await resolveOwnerUserId(req, repo);
     if (!ownerId) {
       res.status(401).json({
         error: {
@@ -409,7 +415,7 @@ export function createApiApp(
   // ============================================================================
   // Stage 09: Authentication & Demo Session Management (/api/auth/*, /api/demo/reset)
   // ============================================================================
-  app.post('/api/auth/register', (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/auth/register', async (req: Request, res: Response, next: NextFunction) => {
     try {
       const body = (req.body ?? {}) as Record<string, unknown>;
       const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
@@ -429,7 +435,7 @@ export function createApiApp(
         throw new OwnershipOrValidationError('VALIDATION_ERROR', 'Display name is required.');
       }
 
-      const existingUser = repo.getUserByEmail(email);
+      const existingUser = await repo.getUserByEmail(email);
       if (existingUser) {
         throw new OwnershipOrValidationError(
           'DUPLICATE_EVENT',
@@ -438,7 +444,7 @@ export function createApiApp(
       }
 
       const passwordHash = hashPassword(password);
-      const user = repo.createUser({
+      const user = await repo.createUser({
         email,
         displayName,
         authProvider: 'session',
@@ -446,12 +452,12 @@ export function createApiApp(
         isDemo: false
       });
 
-      const { session, rawToken } = repo.createSession(user.id);
+      const { session, rawToken } = await repo.createSession(user.id);
       setSessionCookie(res, rawToken, config);
 
-      const onboarding = repo.getOnboardingProgress(user.id);
+      const onboarding = await repo.getOnboardingProgress(user.id);
 
-      repo.appendActivityLog(user.id, {
+      await repo.appendActivityLog(user.id, {
         actorType: 'user',
         action: 'USER_REGISTERED',
         entityType: 'user',
@@ -481,7 +487,7 @@ export function createApiApp(
     }
   });
 
-  app.post('/api/auth/login', (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/auth/login', async (req: Request, res: Response, next: NextFunction) => {
     try {
       const body = (req.body ?? {}) as Record<string, unknown>;
       const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
@@ -491,7 +497,7 @@ export function createApiApp(
         throw new OwnershipOrValidationError('VALIDATION_ERROR', 'Email and password are required.');
       }
 
-      const userWithHash = repo.getUserByEmail(email);
+      const userWithHash = await repo.getUserByEmail(email);
       if (
         !userWithHash ||
         !userWithHash.passwordHash ||
@@ -507,12 +513,12 @@ export function createApiApp(
         return;
       }
 
-      const { session, rawToken } = repo.createSession(userWithHash.id);
+      const { session, rawToken } = await repo.createSession(userWithHash.id);
       setSessionCookie(res, rawToken, config);
 
-      const onboarding = repo.getOnboardingProgress(userWithHash.id);
+      const onboarding = await repo.getOnboardingProgress(userWithHash.id);
 
-      repo.appendActivityLog(userWithHash.id, {
+      await repo.appendActivityLog(userWithHash.id, {
         actorType: 'user',
         action: 'USER_LOGGED_IN',
         entityType: 'user',
@@ -541,22 +547,22 @@ export function createApiApp(
     }
   });
 
-  app.post('/api/auth/demo', (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/auth/demo', async (req: Request, res: Response, next: NextFunction) => {
     try {
       const body = (req.body ?? {}) as Record<string, unknown>;
-      let demoUser = repo.getUserById(DEMO_TENANT_USER_ID);
+      let demoUser = await repo.getUserById(DEMO_TENANT_USER_ID);
 
       if (!demoUser || body.resetFirst === true) {
-        const seeded = repo.resetAndSeedDemoTenant();
+        const seeded = await repo.resetAndSeedDemoTenant();
         demoUser = seeded.demoUser;
       }
 
-      const { session, rawToken } = repo.createSession(demoUser.id);
+      const { session, rawToken } = await repo.createSession(demoUser.id);
       setSessionCookie(res, rawToken, config);
 
-      const onboarding = repo.getOnboardingProgress(demoUser.id);
+      const onboarding = await repo.getOnboardingProgress(demoUser.id);
 
-      repo.appendActivityLog(demoUser.id, {
+      await repo.appendActivityLog(demoUser.id, {
         actorType: 'user',
         action: 'DEMO_SESSION_STARTED',
         entityType: 'user',
@@ -577,14 +583,14 @@ export function createApiApp(
     }
   });
 
-  app.get('/api/auth/me', (req: Request, res: Response, next: NextFunction) => {
+  app.get('/api/auth/me', async (req: Request, res: Response, next: NextFunction) => {
     try {
       const rawToken = resolveSessionToken(req);
       let user: UserRecord | null = null;
       let expiresAt: string | undefined;
 
       if (rawToken) {
-        const sessionResult = repo.getSessionByToken(rawToken);
+        const sessionResult = await repo.getSessionByToken(rawToken);
         if (!sessionResult) {
           res.status(401).json({
             error: {
@@ -615,7 +621,7 @@ export function createApiApp(
             });
             return;
           }
-          user = repo.getUserById(trimmed);
+          user = await repo.getUserById(trimmed);
         }
       }
 
@@ -630,8 +636,8 @@ export function createApiApp(
         return;
       }
 
-      const settings = repo.getSettings(user.id);
-      const onboarding = repo.getOnboardingProgress(user.id);
+      const settings = await repo.getSettings(user.id);
+      const onboarding = await repo.getOnboardingProgress(user.id);
 
       res.status(200).json({
         user,
@@ -645,11 +651,11 @@ export function createApiApp(
     }
   });
 
-  app.post('/api/auth/logout', (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/auth/logout', async (req: Request, res: Response, next: NextFunction) => {
     try {
       const token = resolveSessionToken(req);
       if (token) {
-        repo.deleteSession(token);
+        await repo.deleteSession(token);
       }
       clearSessionCookie(res);
       res.status(200).json({ ok: true, message: 'Logged out successfully.' });
@@ -658,9 +664,9 @@ export function createApiApp(
     }
   });
 
-  app.post('/api/demo/reset', (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/demo/reset', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const result = repo.resetAndSeedDemoTenant();
+      const result = await repo.resetAndSeedDemoTenant();
       res.status(200).json({
         ok: true,
         message: 'Demo tenant reset successfully. Real user accounts were preserved.',
@@ -676,13 +682,13 @@ export function createApiApp(
   // ============================================================================
   // Stage 09: Onboarding Workflow (/api/onboarding/*)
   // ============================================================================
-  app.get('/api/onboarding', (req: Request, res: Response, next: NextFunction) => {
+  app.get('/api/onboarding', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
-      const onboarding = repo.getOnboardingProgress(ownerId);
-      const settings = repo.getSettings(ownerId);
-      const clients = repo.listClientsForOwner(ownerId);
+      const onboarding = await repo.getOnboardingProgress(ownerId);
+      const settings = await repo.getSettings(ownerId);
+      const clients = await repo.listClientsForOwner(ownerId);
       res.status(200).json({
         onboarding,
         settings,
@@ -694,9 +700,9 @@ export function createApiApp(
     }
   });
 
-  app.post('/api/onboarding/business-details', (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/onboarding/business-details', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
       const body = (req.body ?? {}) as Record<string, unknown>;
       const businessName = typeof body.businessName === 'string' ? body.businessName.trim() : '';
@@ -713,14 +719,14 @@ export function createApiApp(
         throw new OwnershipOrValidationError('VALIDATION_ERROR', 'A valid business email address is required.');
       }
 
-      const onboarding = repo.updateOnboardingProgress(ownerId, {
+      const onboarding = await repo.updateOnboardingProgress(ownerId, {
         currentStep: 2,
         businessName,
         businessEmail,
         defaultCurrency
       });
 
-      repo.appendActivityLog(ownerId, {
+      await repo.appendActivityLog(ownerId, {
         actorType: 'user',
         action: 'ONBOARDING_BUSINESS_DETAILS_SAVED',
         entityType: 'settings',
@@ -738,18 +744,18 @@ export function createApiApp(
 
   app.post('/api/onboarding/test-sandbox', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
 
       const testResult = await adapter.verifyOAuthToken();
       const sandboxTested = testResult.ok;
 
-      const onboarding = repo.updateOnboardingProgress(ownerId, {
+      const onboarding = await repo.updateOnboardingProgress(ownerId, {
         currentStep: 3,
         sandboxTested
       });
 
-      repo.appendActivityLog(ownerId, {
+      await repo.appendActivityLog(ownerId, {
         actorType: 'user',
         action: 'ONBOARDING_SANDBOX_TESTED',
         entityType: 'settings',
@@ -775,9 +781,9 @@ export function createApiApp(
     }
   });
 
-  app.post('/api/onboarding/preferences', (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/onboarding/preferences', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
       const body = (req.body ?? {}) as Record<string, unknown>;
 
@@ -809,13 +815,13 @@ export function createApiApp(
         defaultReminderTone = tone;
       }
 
-      const onboarding = repo.updateOnboardingProgress(ownerId, {
+      const onboarding = await repo.updateOnboardingProgress(ownerId, {
         currentStep: 4,
         maxInvoiceAmountMinor,
         defaultReminderTone
       });
 
-      repo.appendActivityLog(ownerId, {
+      await repo.appendActivityLog(ownerId, {
         actorType: 'user',
         action: 'ONBOARDING_PREFERENCES_SAVED',
         entityType: 'settings',
@@ -831,9 +837,9 @@ export function createApiApp(
     }
   });
 
-  app.post('/api/onboarding/first-client', (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/onboarding/first-client', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
       const body = (req.body ?? {}) as Record<string, unknown>;
 
@@ -853,20 +859,20 @@ export function createApiApp(
         );
       }
 
-      const client = repo.createClient(ownerId, {
+      const client = await repo.createClient(ownerId, {
         fullName,
         email,
         companyName,
         defaultCurrency
       });
 
-      const onboarding = repo.updateOnboardingProgress(ownerId, {
+      const onboarding = await repo.updateOnboardingProgress(ownerId, {
         currentStep: 5,
         completed: true,
         firstClientId: client.id
       });
 
-      repo.appendActivityLog(ownerId, {
+      await repo.appendActivityLog(ownerId, {
         actorType: 'user',
         action: 'ONBOARDING_COMPLETED',
         entityType: 'onboarding',
@@ -882,17 +888,17 @@ export function createApiApp(
     }
   });
 
-  app.post('/api/onboarding/skip', (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/onboarding/skip', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
 
-      const onboarding = repo.updateOnboardingProgress(ownerId, {
+      const onboarding = await repo.updateOnboardingProgress(ownerId, {
         skipped: true,
         completed: true
       });
 
-      repo.appendActivityLog(ownerId, {
+      await repo.appendActivityLog(ownerId, {
         actorType: 'user',
         action: 'ONBOARDING_SKIPPED',
         entityType: 'onboarding',
@@ -911,12 +917,12 @@ export function createApiApp(
     }
   });
 
-  app.post('/api/onboarding/complete', (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/onboarding/complete', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
 
-      const onboarding = repo.updateOnboardingProgress(ownerId, {
+      const onboarding = await repo.updateOnboardingProgress(ownerId, {
         completed: true
       });
 
@@ -926,12 +932,12 @@ export function createApiApp(
     }
   });
 
-  app.post('/api/onboarding/reset', (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/onboarding/reset', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
 
-      const onboarding = repo.updateOnboardingProgress(ownerId, {
+      const onboarding = await repo.updateOnboardingProgress(ownerId, {
         currentStep: 1,
         completed: false,
         skipped: false
@@ -946,12 +952,12 @@ export function createApiApp(
   // ============================================================================
   // Stage 10: Settings, Notifications & Data Export
   // ============================================================================
-  app.get('/api/settings', (req: Request, res: Response, next: NextFunction) => {
+  app.get('/api/settings', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
-      const settings = repo.getSettings(ownerId);
-      const onboarding = repo.getOnboardingProgress(ownerId);
+      const settings = await repo.getSettings(ownerId);
+      const onboarding = await repo.getOnboardingProgress(ownerId);
       res.status(200).json({
         settings,
         onboarding,
@@ -964,9 +970,9 @@ export function createApiApp(
     }
   });
 
-  app.patch('/api/settings', (req: Request, res: Response, next: NextFunction) => {
+  app.patch('/api/settings', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
       const body = (req.body ?? {}) as Record<string, unknown>;
 
@@ -984,9 +990,9 @@ export function createApiApp(
       if (typeof body.maxInvoiceAmountMinor === 'number') patch.maxInvoiceAmountMinor = body.maxInvoiceAmountMinor;
       if (typeof body.defaultPaymentTermsDays === 'number') patch.defaultPaymentTermsDays = body.defaultPaymentTermsDays;
 
-      const updated = repo.updateSettings(ownerId, patch);
+      const updated = await repo.updateSettings(ownerId, patch);
 
-      repo.appendActivityLog(ownerId, {
+      await repo.appendActivityLog(ownerId, {
         actorType: 'user',
         action: 'SETTINGS_UPDATED',
         entityType: 'settings',
@@ -1002,51 +1008,51 @@ export function createApiApp(
     }
   });
 
-  app.get('/api/notifications', (req: Request, res: Response, next: NextFunction) => {
+  app.get('/api/notifications', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
-      const notifications = repo.listNotificationsForOwner(ownerId);
+      const notifications = await repo.listNotificationsForOwner(ownerId);
       res.status(200).json({ notifications });
     } catch (err) {
       next(err);
     }
   });
 
-  app.post('/api/notifications/mark-all-read', (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/notifications/mark-all-read', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
-      repo.markAllNotificationsAsRead(ownerId);
+      await repo.markAllNotificationsAsRead(ownerId);
       res.status(200).json({ ok: true, message: 'All notifications marked as read.' });
     } catch (err) {
       next(err);
     }
   });
 
-  app.patch('/api/notifications/:id/read', (req: Request, res: Response, next: NextFunction) => {
+  app.patch('/api/notifications/:id/read', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
       const notifId = String(req.params.id ?? '');
-      repo.markNotificationAsRead(ownerId, notifId);
+      await repo.markNotificationAsRead(ownerId, notifId);
       res.status(200).json({ ok: true });
     } catch (err) {
       next(err);
     }
   });
 
-  app.get('/api/export', (req: Request, res: Response, next: NextFunction) => {
+  app.get('/api/export', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
-      const user = repo.getUserById(ownerId);
-      const settings = repo.getSettings(ownerId);
-      const onboarding = repo.getOnboardingProgress(ownerId);
-      const clients = repo.listClientsForOwner(ownerId);
-      const invoices = repo.listInvoicesForOwner(ownerId);
-      const activity = repo.listActivityForOwner(ownerId);
-      const notifications = repo.listNotificationsForOwner(ownerId);
+      const user = await repo.getUserById(ownerId);
+      const settings = await repo.getSettings(ownerId);
+      const onboarding = await repo.getOnboardingProgress(ownerId);
+      const clients = await repo.listClientsForOwner(ownerId);
+      const invoices = await repo.listInvoicesForOwner(ownerId);
+      const activity = await repo.listActivityForOwner(ownerId);
+      const notifications = await repo.listNotificationsForOwner(ownerId);
 
       const exportBundle = {
         exportedAt: new Date().toISOString(),
@@ -1082,23 +1088,23 @@ export function createApiApp(
   // ============================================================================
   // Stage 05: Clients CRUD (/api/clients, /api/clients/:id)
   // ============================================================================
-  app.get('/api/clients', (req: Request, res: Response, next: NextFunction) => {
+  app.get('/api/clients', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
-      const clients = repo.listClientsForOwner(ownerId);
+      const clients = await repo.listClientsForOwner(ownerId);
       res.status(200).json({ clients });
     } catch (err) {
       next(err);
     }
   });
 
-  app.post('/api/clients', (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/clients', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
       const body = (req.body ?? {}) as Record<string, unknown>;
-      const client = repo.createClient(ownerId, {
+      const client = await repo.createClient(ownerId, {
         fullName: typeof body.fullName === 'string' ? body.fullName : '',
         companyName: typeof body.companyName === 'string' ? body.companyName : undefined,
         email: typeof body.email === 'string' ? body.email : '',
@@ -1106,7 +1112,7 @@ export function createApiApp(
         notes: typeof body.notes === 'string' ? body.notes : undefined
       });
 
-      repo.appendActivityLog(ownerId, {
+      await repo.appendActivityLog(ownerId, {
         actorType: 'user',
         action: 'CLIENT_CREATED',
         entityType: 'client',
@@ -1122,26 +1128,26 @@ export function createApiApp(
     }
   });
 
-  app.get('/api/clients/:id', (req: Request, res: Response, next: NextFunction) => {
+  app.get('/api/clients/:id', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
       const clientId = String(req.params.id ?? '');
-      const client = repo.getClientForOwner(ownerId, clientId);
-      const invoices = repo.listInvoicesForClient(ownerId, clientId);
+      const client = await repo.getClientForOwner(ownerId, clientId);
+      const invoices = await repo.listInvoicesForClient(ownerId, clientId);
       res.status(200).json({ client, invoices });
     } catch (err) {
       next(err);
     }
   });
 
-  app.patch('/api/clients/:id', (req: Request, res: Response, next: NextFunction) => {
+  app.patch('/api/clients/:id', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
       const clientId = String(req.params.id ?? '');
       const body = (req.body ?? {}) as Record<string, unknown>;
-      const client = repo.updateClientForOwner(ownerId, clientId, {
+      const client = await repo.updateClientForOwner(ownerId, clientId, {
         fullName: typeof body.fullName === 'string' ? body.fullName : undefined,
         companyName: typeof body.companyName === 'string' ? body.companyName : undefined,
         email: typeof body.email === 'string' ? body.email : undefined,
@@ -1149,7 +1155,7 @@ export function createApiApp(
         notes: typeof body.notes === 'string' ? body.notes : undefined
       });
 
-      repo.appendActivityLog(ownerId, {
+      await repo.appendActivityLog(ownerId, {
         actorType: 'user',
         action: 'CLIENT_UPDATED',
         entityType: 'client',
@@ -1165,14 +1171,14 @@ export function createApiApp(
     }
   });
 
-  app.delete('/api/clients/:id', (req: Request, res: Response, next: NextFunction) => {
+  app.delete('/api/clients/:id', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
       const clientId = String(req.params.id ?? '');
-      repo.deleteClientForOwner(ownerId, clientId);
+      await repo.deleteClientForOwner(ownerId, clientId);
 
-      repo.appendActivityLog(ownerId, {
+      await repo.appendActivityLog(ownerId, {
         actorType: 'user',
         action: 'CLIENT_DELETED',
         entityType: 'client',
@@ -1191,26 +1197,26 @@ export function createApiApp(
   // Stage 05: Conventional Invoices Draft Workflow (/api/invoices, /api/invoices/:id)
   // Server recalculates all totals; draft creation/editing never sends to PayPal.
   // ============================================================================
-  app.get('/api/invoices', (req: Request, res: Response, next: NextFunction) => {
+  app.get('/api/invoices', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
       const clientIdFilter =
         typeof req.query.clientId === 'string' && req.query.clientId.trim()
           ? req.query.clientId.trim()
           : null;
       const invoices = clientIdFilter
-        ? repo.listInvoicesForClient(ownerId, clientIdFilter)
-        : repo.listInvoicesForOwner(ownerId);
+        ? await repo.listInvoicesForClient(ownerId, clientIdFilter)
+        : await repo.listInvoicesForOwner(ownerId);
       res.status(200).json({ invoices });
     } catch (err) {
       next(err);
     }
   });
 
-  app.post('/api/invoices', (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/invoices', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
       const body = (req.body ?? {}) as Record<string, unknown>;
       const currencyCode =
@@ -1221,7 +1227,7 @@ export function createApiApp(
       const taxRateBps = parseTaxRateBps(body) ?? 0;
       const items = parseInvoiceItemsInput(body.items, currencyCode);
 
-      const invoice = repo.createInvoiceDraft(ownerId, {
+      const invoice = await repo.createInvoiceDraft(ownerId, {
         clientId: typeof body.clientId === 'string' ? body.clientId : '',
         invoiceNumber: typeof body.invoiceNumber === 'string' ? body.invoiceNumber : '',
         currencyCode,
@@ -1233,7 +1239,7 @@ export function createApiApp(
         items
       });
 
-      repo.appendActivityLog(ownerId, {
+      await repo.appendActivityLog(ownerId, {
         actorType: 'user',
         action: 'INVOICE_DRAFT_CREATED',
         entityType: 'invoice',
@@ -1255,25 +1261,25 @@ export function createApiApp(
     }
   });
 
-  app.get('/api/invoices/:id', (req: Request, res: Response, next: NextFunction) => {
+  app.get('/api/invoices/:id', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
       const invoiceId = String(req.params.id ?? '');
-      const invoice = repo.getInvoiceForOwner(ownerId, invoiceId);
-      const client = repo.getClientForOwner(ownerId, invoice.clientId);
+      const invoice = await repo.getInvoiceForOwner(ownerId, invoiceId);
+      const client = await repo.getClientForOwner(ownerId, invoice.clientId);
       res.status(200).json({ invoice, client });
     } catch (err) {
       next(err);
     }
   });
 
-  app.patch('/api/invoices/:id', (req: Request, res: Response, next: NextFunction) => {
+  app.patch('/api/invoices/:id', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
       const invoiceId = String(req.params.id ?? '');
-      const existing = repo.getInvoiceForOwner(ownerId, invoiceId);
+      const existing = await repo.getInvoiceForOwner(ownerId, invoiceId);
       const body = (req.body ?? {}) as Record<string, unknown>;
 
       const nextCurrency =
@@ -1285,7 +1291,7 @@ export function createApiApp(
       const items =
         body.items !== undefined ? parseInvoiceItemsInput(body.items, nextCurrency) : undefined;
 
-      const invoice = repo.updateInvoiceDraftForOwner(ownerId, invoiceId, {
+      const invoice = await repo.updateInvoiceDraftForOwner(ownerId, invoiceId, {
         clientId: typeof body.clientId === 'string' ? body.clientId : undefined,
         invoiceNumber: typeof body.invoiceNumber === 'string' ? body.invoiceNumber : undefined,
         currencyCode: typeof body.currencyCode === 'string' ? nextCurrency : undefined,
@@ -1296,7 +1302,7 @@ export function createApiApp(
         items
       });
 
-      repo.appendActivityLog(ownerId, {
+      await repo.appendActivityLog(ownerId, {
         actorType: 'user',
         action: 'INVOICE_DRAFT_UPDATED',
         entityType: 'invoice',
@@ -1328,15 +1334,16 @@ export function createApiApp(
     }
   }
 
-  app.get('/api/actions', (req: Request, res: Response, next: NextFunction) => {
+  app.get('/api/actions', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
       const invoiceId =
         typeof req.query.invoiceId === 'string' && req.query.invoiceId.trim()
           ? req.query.invoiceId.trim()
           : undefined;
-      const actions = repo.listPendingActionsForOwner(ownerId, invoiceId).map((a) => ({
+      const rawActions = (await repo.listPendingActionsForOwner(ownerId, invoiceId)) as any[];
+      const actions = rawActions.map((a: any) => ({
         ...a,
         slip: safeParseSlipPayload(a.payloadJson)
       }));
@@ -1346,26 +1353,26 @@ export function createApiApp(
     }
   });
 
-  app.get('/api/actions/:id', (req: Request, res: Response, next: NextFunction) => {
+  app.get('/api/actions/:id', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
       const actionId = String(req.params.id ?? '');
-      const action = repo.getPendingActionForOwner(ownerId, actionId);
-      const invoice = repo.getInvoiceForOwner(ownerId, action.targetInvoiceId);
-      const client = repo.getClientForOwner(ownerId, invoice.clientId);
+      const action = await repo.getPendingActionForOwner(ownerId, actionId);
+      const invoice = await repo.getInvoiceForOwner(ownerId, action.targetInvoiceId);
+      const client = await repo.getClientForOwner(ownerId, invoice.clientId);
       const slip =
         safeParseSlipPayload(action.payloadJson) ??
-        repo.buildApprovalSlipPayload(ownerId, invoice.id, adapter.mode).slip;
+        await repo.buildApprovalSlipPayload(ownerId, invoice.id, adapter.mode).slip;
       res.status(200).json({ action, slip, invoice, client });
     } catch (err) {
       next(err);
     }
   });
 
-  function handleCreateApprovalRequest(req: Request, res: Response, next: NextFunction): void {
+  async function handleCreateApprovalRequest(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
       const body = (req.body ?? {}) as Record<string, unknown>;
       const invoiceId =
@@ -1387,13 +1394,13 @@ export function createApiApp(
           ? body.expiresAt.trim()
           : undefined;
 
-      const { action, slip } = repo.requestInvoiceSendApproval(ownerId, invoiceId, {
+      const { action, slip } = await repo.requestInvoiceSendApproval(ownerId, invoiceId, {
         providerMode: adapter.mode,
         expiresAt,
         correlationId: String(res.locals.requestId ?? '')
       });
 
-      const invoice = repo.getInvoiceForOwner(ownerId, invoiceId);
+      const invoice = await repo.getInvoiceForOwner(ownerId, invoiceId);
       res.status(201).json({ action, slip, invoice });
     } catch (err) {
       next(err);
@@ -1403,29 +1410,29 @@ export function createApiApp(
   app.post('/api/actions', handleCreateApprovalRequest);
   app.post('/api/invoices/:id/approval-request', handleCreateApprovalRequest);
 
-  app.post('/api/actions/:id/approve', (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/actions/:id/approve', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
       const actionId = String(req.params.id ?? '');
-      const action = repo.approvePendingAction(
+      const action = await repo.approvePendingAction(
         ownerId,
         actionId,
         String(res.locals.requestId ?? '')
       );
-      const invoice = repo.getInvoiceForOwner(ownerId, action.targetInvoiceId);
+      const invoice = await repo.getInvoiceForOwner(ownerId, action.targetInvoiceId);
       const slip =
         safeParseSlipPayload(action.payloadJson) ??
-        repo.buildApprovalSlipPayload(ownerId, invoice.id, adapter.mode).slip;
+        await repo.buildApprovalSlipPayload(ownerId, invoice.id, adapter.mode).slip;
       res.status(200).json({ action, slip, invoice });
     } catch (err) {
       next(err);
     }
   });
 
-  app.post('/api/actions/:id/reject', (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/actions/:id/reject', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
       const actionId = String(req.params.id ?? '');
       const body = (req.body ?? {}) as Record<string, unknown>;
@@ -1433,13 +1440,13 @@ export function createApiApp(
         typeof body.reason === 'string' && body.reason.trim()
           ? body.reason.trim()
           : 'Discarded by user during approval review.';
-      const action = repo.rejectPendingAction(
+      const action = await repo.rejectPendingAction(
         ownerId,
         actionId,
         reason,
         String(res.locals.requestId ?? '')
       );
-      const invoice = repo.getInvoiceForOwner(ownerId, action.targetInvoiceId);
+      const invoice = await repo.getInvoiceForOwner(ownerId, action.targetInvoiceId);
       const slip = safeParseSlipPayload(action.payloadJson);
       res.status(200).json({ action, slip, invoice });
     } catch (err) {
@@ -1456,7 +1463,7 @@ export function createApiApp(
     requestId: string,
     res: Response
   ): Promise<void> {
-    const { action, invoice, client } = repo.beginActionExecution(
+    const { action, invoice, client } = await repo.beginActionExecution(
       ownerId,
       actionId,
       requestId
@@ -1476,7 +1483,7 @@ export function createApiApp(
           currentStatus === 'PAID' ||
           currentStatus === 'MARKED_AS_PAID'
         ) {
-          const completed = repo.completeActionExecutionSuccess(
+          const completed = await repo.completeActionExecutionSuccess(
             ownerId,
             action.id,
             {
@@ -1490,7 +1497,7 @@ export function createApiApp(
             requestId
           );
 
-          repo.appendActivityLog(ownerId, {
+          await repo.appendActivityLog(ownerId, {
             actorType: 'system',
             action: 'PROVIDER_TIMEOUT_RECONCILED',
             entityType: 'invoice',
@@ -1526,7 +1533,7 @@ export function createApiApp(
 
     // Step 2: Create provider draft only if we do not already have a reconciled DRAFT providerInvoiceId
     if (!providerInvoiceId) {
-      const adapterItems = invoice.items.map((it) => ({
+      const adapterItems = invoice.items.map((it: any) => ({
         name: it.description.slice(0, 120),
         description: it.description,
         quantity: String(it.quantity),
@@ -1566,7 +1573,7 @@ export function createApiApp(
           draftResult.error.code === 'CREDENTIALS_MISSING'
             ? `Action unavailable in current mode (${draftResult.mode}): ${draftResult.error.message}`
             : draftResult.error.message;
-        const failedAction = repo.completeActionExecutionFailure(
+        const failedAction = await repo.completeActionExecutionFailure(
           ownerId,
           action.id,
           failureMessage,
@@ -1595,7 +1602,7 @@ export function createApiApp(
             requestId
           },
           action: failedAction,
-          invoice: repo.getInvoiceForOwner(ownerId, invoice.id)
+          invoice: await repo.getInvoiceForOwner(ownerId, invoice.id)
         });
         return;
       }
@@ -1604,7 +1611,7 @@ export function createApiApp(
 
       // Immediately persist the draft providerInvoiceId before calling sendInvoice
       // so any subsequent network timeout on send can be safely reconciled.
-      repo.recordProviderInvoiceSync(ownerId, invoice.id, {
+      await repo.recordProviderInvoiceSync(ownerId, invoice.id, {
         providerMode: adapter.mode,
         providerInvoiceId,
         providerStatus: draftResult.data.providerStatus
@@ -1632,7 +1639,7 @@ export function createApiApp(
             reconcileRes.data.providerStatus === 'PAID' ||
             reconcileRes.data.providerStatus === 'MARKED_AS_PAID')
         ) {
-          const completed = repo.completeActionExecutionSuccess(
+          const completed = await repo.completeActionExecutionSuccess(
             ownerId,
             action.id,
             {
@@ -1646,7 +1653,7 @@ export function createApiApp(
             requestId
           );
 
-          repo.appendActivityLog(ownerId, {
+          await repo.appendActivityLog(ownerId, {
             actorType: 'system',
             action: 'PROVIDER_TIMEOUT_RECONCILED',
             entityType: 'invoice',
@@ -1679,7 +1686,7 @@ export function createApiApp(
         }
       }
 
-      const failedAction = repo.completeActionExecutionFailure(
+      const failedAction = await repo.completeActionExecutionFailure(
         ownerId,
         action.id,
         sendResult.error.message,
@@ -1706,7 +1713,7 @@ export function createApiApp(
           requestId
         },
         action: failedAction,
-        invoice: repo.getInvoiceForOwner(ownerId, invoice.id)
+        invoice: await repo.getInvoiceForOwner(ownerId, invoice.id)
       });
       return;
     }
@@ -1714,7 +1721,7 @@ export function createApiApp(
     const retrieveResult = await adapter.retrieveInvoice(providerInvoiceId);
     const finalSnapshot = retrieveResult.ok ? retrieveResult.data : sendResult.data;
 
-    const completed = repo.completeActionExecutionSuccess(
+    const completed = await repo.completeActionExecutionSuccess(
       ownerId,
       action.id,
       {
@@ -1745,7 +1752,7 @@ export function createApiApp(
 
   app.post('/api/actions/:id/execute', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
       const actionId = String(req.params.id ?? '');
       const requestId = String(res.locals.requestId ?? crypto.randomUUID());
@@ -1758,13 +1765,13 @@ export function createApiApp(
   // Stage 08: Invoice-scoped send endpoint that strictly enforces an APPROVED pending action
   app.post('/api/invoices/:id/paypal/send', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
       const invoiceId = String(req.params.id ?? '').trim();
       const requestId = String(res.locals.requestId ?? crypto.randomUUID());
 
       // Verify ownership of the invoice first
-      repo.getInvoiceForOwner(ownerId, invoiceId);
+      await repo.getInvoiceForOwner(ownerId, invoiceId);
 
       const body = (req.body ?? {}) as Record<string, unknown>;
       const requestedActionId =
@@ -1774,7 +1781,7 @@ export function createApiApp(
 
       let targetActionId = requestedActionId;
       if (targetActionId) {
-        const action = repo.getPendingActionForOwner(ownerId, targetActionId);
+        const action = await repo.getPendingActionForOwner(ownerId, targetActionId);
         if (action.targetInvoiceId !== invoiceId) {
           throw new OwnershipOrValidationError(
             'VALIDATION_ERROR',
@@ -1782,8 +1789,8 @@ export function createApiApp(
           );
         }
       } else {
-        const actions = repo.listPendingActionsForOwner(ownerId, invoiceId);
-        const approved = actions.find((a) => a.state === 'APPROVED');
+        const actions = (await repo.listPendingActionsForOwner(ownerId, invoiceId)) as any[];
+        const approved = actions.find((a: any) => a.state === 'APPROVED');
         if (!approved) {
           throw new OwnershipOrValidationError(
             'VALIDATION_ERROR',
@@ -1793,6 +1800,9 @@ export function createApiApp(
         targetActionId = approved.id;
       }
 
+      if (!targetActionId) {
+        throw new OwnershipOrValidationError('VALIDATION_ERROR', 'No approved action found to execute.');
+      }
       await executeApprovedAction(ownerId, targetActionId, requestId, res);
     } catch (err) {
       next(err);
@@ -1802,12 +1812,12 @@ export function createApiApp(
   // Stage 08: Retrieve / Refresh provider status against PayPal (`GET /v2/invoicing/invoices/{id}`)
   app.post('/api/invoices/:id/paypal/refresh', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
       const invoiceId = String(req.params.id ?? '').trim();
       const requestId = String(res.locals.requestId ?? crypto.randomUUID());
 
-      const invoice = repo.getInvoiceForOwner(ownerId, invoiceId);
+      const invoice = await repo.getInvoiceForOwner(ownerId, invoiceId);
       if (!invoice.providerInvoiceId) {
         throw new OwnershipOrValidationError(
           'VALIDATION_ERROR',
@@ -1817,7 +1827,7 @@ export function createApiApp(
 
       const retrieveResult = await adapter.retrieveInvoice(invoice.providerInvoiceId);
       if (!retrieveResult.ok) {
-        repo.appendActivityLog(ownerId, {
+        await repo.appendActivityLog(ownerId, {
           actorType: 'user',
           action: 'INVOICE_PROVIDER_REFRESH_FAILED',
           entityType: 'invoice',
@@ -1853,7 +1863,7 @@ export function createApiApp(
         return;
       }
 
-      const updatedInvoice = repo.refreshInvoiceProviderStatus(
+      const updatedInvoice = await repo.refreshInvoiceProviderStatus(
         ownerId,
         invoice.id,
         {
@@ -1880,9 +1890,9 @@ export function createApiApp(
   });
 
   // Stage 12: Record Partial or Full Payment against an invoice
-  app.post('/api/invoices/:id/partial-payment', (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/invoices/:id/partial-payment', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
 
       const invoiceId = String(req.params.id);
@@ -1896,7 +1906,7 @@ export function createApiApp(
         );
       }
 
-      const updated = repo.recordPartialPayment(ownerId, invoiceId, amountMinor);
+      const updated = await repo.recordPartialPayment(ownerId, invoiceId, amountMinor);
       res.status(200).json({ ok: true, invoice: updated });
     } catch (err) {
       next(err);
@@ -1961,7 +1971,7 @@ export function createApiApp(
 
       if (!isSignatureVerified) {
         // Record rejected webhook event without modifying any invoice state
-        repo.recordWebhookEvent({
+        await repo.recordWebhookEvent({
           providerEventId: `${eventId}:rejected:${requestId}`,
           eventType,
           relatedProviderInvoiceId: resourceId,
@@ -1981,7 +1991,7 @@ export function createApiApp(
         return;
       }
 
-      const recorded = repo.recordWebhookEvent({
+      const recorded = await repo.recordWebhookEvent({
         providerEventId: eventId,
         eventType,
         relatedProviderInvoiceId: resourceId,
@@ -2001,7 +2011,7 @@ export function createApiApp(
 
       let updatedInvoiceId: string | undefined;
       if (resourceId) {
-        const matched = repo.findInvoiceByProviderInvoiceId(resourceId);
+        const matched = await repo.findInvoiceByProviderInvoiceId(resourceId);
         if (matched) {
           const rawResourceStatus =
             typeof nestedInvoice?.status === 'string'
@@ -2030,7 +2040,7 @@ export function createApiApp(
           }
 
           if (mappedStatus !== 'UNKNOWN') {
-            const refreshed = repo.refreshInvoiceProviderStatus(
+            const refreshed = await repo.refreshInvoiceProviderStatus(
               matched.ownerUserId,
               matched.id,
               {
@@ -2045,7 +2055,7 @@ export function createApiApp(
             );
             updatedInvoiceId = refreshed.id;
 
-            repo.appendActivityLog(matched.ownerUserId, {
+            await repo.appendActivityLog(matched.ownerUserId, {
               actorType: 'provider',
               action: 'WEBHOOK_EVENT_PROCESSED',
               entityType: 'invoice',
@@ -2074,11 +2084,11 @@ export function createApiApp(
     }
   });
 
-  app.get('/api/activity', (req: Request, res: Response, next: NextFunction) => {
+  app.get('/api/activity', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
-      const activities = repo.listActivityForOwner(ownerId);
+      const activities = await repo.listActivityForOwner(ownerId);
       res.status(200).json({ activities });
     } catch (err) {
       next(err);
@@ -2090,7 +2100,7 @@ export function createApiApp(
   // ============================================================================
   const handleAgentTurn = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
 
       const body = (req.body ?? {}) as Record<string, unknown>;
@@ -2113,11 +2123,11 @@ export function createApiApp(
     }
   };
 
-  app.post('/api/agent/prepare-invoice', (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/agent/prepare-invoice', async (req: Request, res: Response, next: NextFunction) => {
     void handleAgentTurn(req, res, next);
   });
 
-  app.post('/api/agent/chat', (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/agent/chat', async (req: Request, res: Response, next: NextFunction) => {
     void handleAgentTurn(req, res, next);
   });
 
@@ -2125,14 +2135,12 @@ export function createApiApp(
   // Stage 11: Reminders & Client Tone Workflow
   // ============================================================================
 
-  app.post(
-    '/api/invoices/:id/reminders/draft',
-    async (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/invoices/:id/reminders/draft', async (req: Request, res: Response, next: NextFunction) => {
       try {
-        const ownerId = requireOwner(req, res);
+        const ownerId = await requireOwner(req, res);
         if (!ownerId) return;
         const invoiceId = String(req.params.id ?? '');
-        const invoice = repo.getInvoiceForOwner(ownerId, invoiceId);
+        const invoice = await repo.getInvoiceForOwner(ownerId, invoiceId);
 
         if (invoice.providerStatus === 'PAID' || invoice.providerStatus === 'MARKED_AS_PAID') {
           throw new OwnershipOrValidationError(
@@ -2147,7 +2155,7 @@ export function createApiApp(
           );
         }
 
-        const client = repo.getClientForOwner(ownerId, invoice.clientId);
+        const client = await repo.getClientForOwner(ownerId, invoice.clientId);
         const body = (req.body ?? {}) as Record<string, unknown>;
 
         // Calculate days overdue
@@ -2167,9 +2175,9 @@ export function createApiApp(
         if (requestedTone) {
           selectedTone = requestedTone;
         } else {
-          const clientInvoices = repo.listInvoicesForClient(ownerId, client.id);
+          const clientInvoices = await repo.listInvoicesForClient(ownerId, client.id);
           const overdueCount = clientInvoices.filter(
-            (inv) =>
+            (inv: any) =>
               inv.dueDate < today &&
               inv.localStatus !== 'DRAFT' &&
               inv.providerStatus !== 'PAID' &&
@@ -2185,8 +2193,8 @@ export function createApiApp(
           }
         }
 
-        const user = repo.getUserById(ownerId);
-        const onboarding = repo.getOnboardingProgress(ownerId);
+        const user = await repo.getUserById(ownerId);
+        const onboarding = await repo.getOnboardingProgress(ownerId);
         const businessName =
           onboarding?.businessName || user?.displayName || 'InvoicePilot Workspace';
         const amountFormatted = `${formatMinorUnitsToDecimal(
@@ -2210,7 +2218,7 @@ export function createApiApp(
           userNotes: typeof body.notes === 'string' ? body.notes : undefined
         });
 
-        const reminder = repo.createReminder(ownerId, {
+        const reminder = await repo.createReminder(ownerId, {
           invoiceId: invoice.id,
           tone: selectedTone,
           subject: wording.subject,
@@ -2218,7 +2226,7 @@ export function createApiApp(
           scheduledFor
         });
 
-        repo.appendActivityLog(ownerId, {
+        await repo.appendActivityLog(ownerId, {
           actorType: 'user',
           action: 'REMINDER_DRAFTED',
           entityType: 'reminder',
@@ -2234,7 +2242,7 @@ export function createApiApp(
           correlationId: String(res.locals.requestId ?? '')
         });
 
-        repo.createNotification(ownerId, {
+        await repo.createNotification(ownerId, {
           title: 'Reminder drafted',
           body: `Reminder drafted for invoice ${invoice.invoiceNumber} (${selectedTone} tone).`
         });
@@ -2253,45 +2261,45 @@ export function createApiApp(
     }
   );
 
-  app.get('/api/reminders', (req: Request, res: Response, next: NextFunction) => {
+  app.get('/api/reminders', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
       const status =
         typeof req.query.status === 'string'
           ? (req.query.status as ReminderApprovalState)
           : undefined;
       const invoiceId = typeof req.query.invoiceId === 'string' ? req.query.invoiceId : undefined;
-      const reminders = repo.listRemindersForOwner(ownerId, { status, invoiceId });
+      const reminders = await repo.listRemindersForOwner(ownerId, { status, invoiceId });
       res.status(200).json({ reminders });
     } catch (err) {
       next(err);
     }
   });
 
-  app.get('/api/reminders/:id', (req: Request, res: Response, next: NextFunction) => {
+  app.get('/api/reminders/:id', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
       const reminderId = String(req.params.id ?? '');
-      const reminder = repo.getReminderById(ownerId, reminderId);
+      const reminder = await repo.getReminderById(ownerId, reminderId);
       if (!reminder) {
         throw new OwnershipOrValidationError('NOT_FOUND', `Reminder ${reminderId} not found.`);
       }
-      const invoice = repo.getInvoiceForOwner(ownerId, reminder.invoiceId);
-      const client = repo.getClientForOwner(ownerId, invoice.clientId);
+      const invoice = await repo.getInvoiceForOwner(ownerId, reminder.invoiceId);
+      const client = await repo.getClientForOwner(ownerId, invoice.clientId);
       res.status(200).json({ reminder, invoice, client });
     } catch (err) {
       next(err);
     }
   });
 
-  app.patch('/api/reminders/:id', (req: Request, res: Response, next: NextFunction) => {
+  app.patch('/api/reminders/:id', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
       const reminderId = String(req.params.id ?? '');
-      const reminder = repo.getReminderById(ownerId, reminderId);
+      const reminder = await repo.getReminderById(ownerId, reminderId);
       if (!reminder) {
         throw new OwnershipOrValidationError('NOT_FOUND', `Reminder ${reminderId} not found.`);
       }
@@ -2316,7 +2324,7 @@ export function createApiApp(
             : null
           : undefined;
 
-      const updated = repo.updateReminder(ownerId, reminderId, {
+      const updated = await repo.updateReminder(ownerId, reminderId, {
         tone,
         subject,
         body: reminderBody,
@@ -2328,14 +2336,12 @@ export function createApiApp(
     }
   });
 
-  app.post(
-    '/api/reminders/:id/request-approval',
-    (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/reminders/:id/request-approval', async (req: Request, res: Response, next: NextFunction) => {
       try {
-        const ownerId = requireOwner(req, res);
+        const ownerId = await requireOwner(req, res);
         if (!ownerId) return;
         const reminderId = String(req.params.id ?? '');
-        const updated = repo.requestReminderSendApproval(ownerId, reminderId);
+        const updated = await repo.requestReminderSendApproval(ownerId, reminderId);
         res.status(200).json({ reminder: updated });
       } catch (err) {
         next(err);
@@ -2343,45 +2349,43 @@ export function createApiApp(
     }
   );
 
-  app.post('/api/reminders/:id/approve', (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/reminders/:id/approve', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
       const reminderId = String(req.params.id ?? '');
-      const updated = repo.approveReminder(ownerId, reminderId);
+      const updated = await repo.approveReminder(ownerId, reminderId);
       res.status(200).json({ reminder: updated });
     } catch (err) {
       next(err);
     }
   });
 
-  app.post('/api/reminders/:id/reject', (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/reminders/:id/reject', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
       const reminderId = String(req.params.id ?? '');
       const body = (req.body ?? {}) as Record<string, unknown>;
       const reason = typeof body.reason === 'string' ? body.reason : undefined;
-      const updated = repo.rejectReminder(ownerId, reminderId, reason);
+      const updated = await repo.rejectReminder(ownerId, reminderId, reason);
       res.status(200).json({ reminder: updated });
     } catch (err) {
       next(err);
     }
   });
 
-  app.post(
-    '/api/reminders/:id/send',
-    async (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/reminders/:id/send', async (req: Request, res: Response, next: NextFunction) => {
       try {
-        const ownerId = requireOwner(req, res);
+        const ownerId = await requireOwner(req, res);
         if (!ownerId) return;
         const reminderId = String(req.params.id ?? '');
-        const reminder = repo.getReminderById(ownerId, reminderId);
+        const reminder = await repo.getReminderById(ownerId, reminderId);
         if (!reminder) {
           throw new OwnershipOrValidationError('NOT_FOUND', `Reminder ${reminderId} not found.`);
         }
-        const invoice = repo.getInvoiceForOwner(ownerId, reminder.invoiceId);
-        const client = repo.getClientForOwner(ownerId, invoice.clientId);
+        const invoice = await repo.getInvoiceForOwner(ownerId, reminder.invoiceId);
+        const client = await repo.getClientForOwner(ownerId, invoice.clientId);
 
         const sendFn = async (r: ReminderRecord): Promise<string> => {
           if (adapter.sendInvoiceReminder && invoice.providerInvoiceId) {
@@ -2411,11 +2415,9 @@ export function createApiApp(
     }
   );
 
-  app.post(
-    '/api/reminders/process-scheduled',
-    async (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/reminders/process-scheduled', async (req: Request, res: Response, next: NextFunction) => {
       try {
-        const ownerId = requireOwner(req, res);
+        const ownerId = await requireOwner(req, res);
         if (!ownerId) return;
         const body = (req.body ?? {}) as Record<string, unknown>;
         const currentTimeIso =
@@ -2425,9 +2427,9 @@ export function createApiApp(
 
         const results = await repo.processDueScheduledReminders(
           currentTimeIso,
-          async (reminder) => {
-            const invoice = repo.getInvoiceForOwner(reminder.ownerUserId, reminder.invoiceId);
-            const client = repo.getClientForOwner(reminder.ownerUserId, invoice.clientId);
+          async (reminder: any) => {
+            const invoice = await repo.getInvoiceForOwner(reminder.ownerUserId, reminder.invoiceId);
+            const client = await repo.getClientForOwner(reminder.ownerUserId, invoice.clientId);
             if (adapter.sendInvoiceReminder && invoice.providerInvoiceId) {
               const result = await adapter.sendInvoiceReminder({
                 providerInvoiceId: invoice.providerInvoiceId,
@@ -2452,9 +2454,9 @@ export function createApiApp(
   );
 
   // Stage 12: Grounded Aging, Cash Flow, and Financial Insights
-  app.get('/api/insights', (req: Request, res: Response, next: NextFunction) => {
+  app.get('/api/insights', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
 
       const asOfDate =
@@ -2469,7 +2471,7 @@ export function createApiApp(
         );
       }
 
-      const insights = repo.getGroundedInsights(ownerId, asOfDate);
+      const insights = await repo.getGroundedInsights(ownerId, asOfDate);
       res.status(200).json({ ok: true, insights });
     } catch (err) {
       next(err);
@@ -2477,12 +2479,12 @@ export function createApiApp(
   });
 
   // Stage 14: Permanent Account & Associated Records Deletion
-  app.post('/api/account/delete', (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/account/delete', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
 
-      const user = repo.getUserById(ownerId);
+      const user = await repo.getUserById(ownerId);
       if (!user) {
         throw new OwnershipOrValidationError('NOT_FOUND', 'User profile not found.');
       }
@@ -2497,7 +2499,7 @@ export function createApiApp(
         );
       }
 
-      const result = repo.deleteUserAccount(ownerId);
+      const result = await repo.deleteUserAccount(ownerId);
       clearSessionCookie(res);
 
       res.status(200).json({
@@ -2512,13 +2514,13 @@ export function createApiApp(
   });
 
   // Stage 14: Webhook Event History Viewer
-  app.get('/api/webhooks/paypal/events', (req: Request, res: Response, next: NextFunction) => {
+  app.get('/api/webhooks/paypal/events', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
 
       const limit = Number(req.query.limit) || 50;
-      const events = repo.listWebhookEvents(limit);
+      const events = await repo.listWebhookEvents(limit);
       res.status(200).json({ ok: true, events });
     } catch (err) {
       next(err);
@@ -2526,15 +2528,15 @@ export function createApiApp(
   });
 
   // Stage 14: Invoice Line Item Templates & Presets
-  app.get('/api/templates', (req: Request, res: Response, next: NextFunction) => {
+  app.get('/api/templates', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
 
-      const templates = repo.listTemplatesForOwner(ownerId);
+      const templates = await repo.listTemplatesForOwner(ownerId);
       res.status(200).json({
         ok: true,
-        templates: templates.map((t) => ({
+        templates: templates.map((t: any) => ({
           ...t,
           name: t.title,
           unitPriceMinor: t.unitAmountMinor
@@ -2545,15 +2547,15 @@ export function createApiApp(
     }
   });
 
-  app.post('/api/templates', (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/templates', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
 
       const body = (req.body ?? {}) as Record<string, unknown>;
       const title = String(body.title ?? body.name ?? '');
       const unitAmountMinor = Number(body.unitAmountMinor ?? body.unitPriceMinor ?? 0);
-      const template = repo.createTemplate(ownerId, {
+      const template = await repo.createTemplate(ownerId, {
         title,
         description: String(body.description ?? ''),
         unitAmountMinor,
@@ -2573,12 +2575,12 @@ export function createApiApp(
     }
   });
 
-  app.delete('/api/templates/:id', (req: Request, res: Response, next: NextFunction) => {
+  app.delete('/api/templates/:id', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ownerId = requireOwner(req, res);
+      const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
 
-      repo.deleteTemplate(ownerId, String(req.params.id));
+      await repo.deleteTemplate(ownerId, String(req.params.id));
       res.status(200).json({ ok: true });
     } catch (err) {
       next(err);

@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { ISqlDatabase } from './types.js';
 import { createIsolatedPostgresDatabase } from './postgresAdapter.js';
+import { createRealPostgresDatabase } from './postgresPoolAdapter.js';
 
 let _DatabaseSyncClass: typeof DatabaseSync | null = null;
 
@@ -379,8 +380,12 @@ export function isPostgresDatabaseUrl(url: string): boolean {
  * and on-disk SQLite for local development and local test suites.
  */
 export function openAndMigrateDatabase(dbFilePath: string): any {
-  if (isPostgresDatabaseUrl(dbFilePath)) {
+  if (dbFilePath === ':memory-postgres:') {
     return createIsolatedPostgresDatabase();
+  }
+
+  if (isPostgresDatabaseUrl(dbFilePath)) {
+    return createRealPostgresDatabase(dbFilePath);
   }
 
   const isNetlify = Boolean(

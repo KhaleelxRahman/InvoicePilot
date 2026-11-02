@@ -8,7 +8,7 @@ import type { ISqlDatabase, ISqlStatement } from './types.js';
  * Converts any Date objects into ISO-8601 strings to maintain
  * exact parity with SQLite string timestamp representation.
  */
-function normalizeRow(row: Record<string, unknown>): Record<string, unknown> {
+export function normalizeRow(row: Record<string, unknown>): Record<string, unknown> {
   if (!row || typeof row !== 'object') return row;
   const normalized: Record<string, unknown> = {};
   for (const [key, val] of Object.entries(row)) {

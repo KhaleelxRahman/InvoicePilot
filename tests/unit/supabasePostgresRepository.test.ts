@@ -1,5 +1,8 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
+import { newDb, DataType } from 'pg-mem';
 import {
   openAndMigrateDatabase,
   isPostgresDatabaseUrl
@@ -9,11 +12,17 @@ import {
   PostgresDatabaseSyncAdapter
 } from '../../src/server/db/postgresAdapter.js';
 import {
+  PostgresPoolAdapter,
+  convertQuestionMarksToDollarNumbered,
+  buildPostgresSslConfig
+} from '../../src/server/db/postgresPoolAdapter.js';
+import {
   InvoicePilotRepository,
   DEMO_TENANT_USER_ID,
   DEMO_TENANT_EMAIL,
   OwnershipOrValidationError
 } from '../../src/server/db/repository.js';
+import { AsyncInvoicePilotRepository } from '../../src/server/db/asyncRepository.js';
 import { createApp } from '../../src/server/app.js';
 import { loadAppConfig } from '../../src/server/config.js';
 
@@ -366,5 +375,221 @@ describe('Supabase PostgreSQL Repository Engine & Integration', () => {
         delete process.env.NETLIFY;
       }
     }
+  });
+
+  // =========================================================================
+  // 8. PostgresPoolAdapter Async Execution, Parameter Translation & Transactions
+  // =========================================================================
+  it('executes PostgresPoolAdapter with parameterized translation, transaction scopes, and rollback safety without Atomics or SharedArrayBuffer', async () => {
+    // 1. Parameter translation parity
+    const sql = 'SELECT * FROM invoices WHERE owner_user_id = ? AND total_minor > ? AND status = ?';
+    const translated = convertQuestionMarksToDollarNumbered(sql);
+    expect(translated).toBe('SELECT * FROM invoices WHERE owner_user_id = $1 AND total_minor > $2 AND status = $3');
+
+    // 2. Mock pg.Pool capturing queries and transaction semantics
+    const executedQueries: Array<{ query: string; params?: unknown[] }> = [];
+    let activeClientReleased = false;
+
+    const mockClient = {
+      query: async (queryText: string, params?: unknown[]) => {
+        executedQueries.push({ query: queryText, params });
+        if (queryText.includes('SELECT')) {
+          return {
+            rows: [{ id: 'inv_101', total_minor: 50000, issue_date: new Date('2026-11-01T00:00:00Z') }],
+            rowCount: 1
+          };
+        }
+        return { rows: [], rowCount: 1 };
+      },
+      release: () => {
+        activeClientReleased = true;
+      }
+    };
+
+    const mockPool = {
+      query: async (queryText: string, params?: unknown[]) => {
+        executedQueries.push({ query: queryText, params });
+        if (queryText.includes('SELECT')) {
+          return {
+            rows: [{ id: 'inv_101', total_minor: 50000, issue_date: new Date('2026-11-01T00:00:00Z') }],
+            rowCount: 1
+          };
+        }
+        return { rows: [], rowCount: 0 };
+      },
+      connect: async () => mockClient,
+      end: async () => {}
+    } as any;
+
+    const adapter = new PostgresPoolAdapter(mockPool);
+
+    // 3. Prepare and run queries
+    const stmt = adapter.prepare('SELECT id, total_minor, issue_date FROM invoices WHERE owner_user_id = ?');
+    const row = await stmt.get('usr_test_1') as any;
+    expect(row).toBeDefined();
+    expect(row.id).toBe('inv_101');
+    expect(row.issue_date).toBe('2026-11-01');
+
+    // 4. Scoped transaction with automatic commit
+    await adapter.withTransaction(async () => {
+      const updateStmt = adapter.prepare('UPDATE invoices SET status = ? WHERE id = ?');
+      await updateStmt.run('PAID', 'inv_101');
+    });
+
+    expect(executedQueries.some((q) => q.query === 'BEGIN;')).toBe(true);
+    expect(executedQueries.some((q) => q.query === 'COMMIT;')).toBe(true);
+    expect(activeClientReleased).toBe(true);
+
+    // 5. Scoped transaction with automatic rollback on error
+    let rollbackClientReleased = false;
+    const rollbackMockClient = {
+      query: async (queryText: string, params?: unknown[]) => {
+        executedQueries.push({ query: queryText, params });
+        return { rows: [], rowCount: 1 };
+      },
+      release: () => {
+        rollbackClientReleased = true;
+      }
+    };
+    const rollbackMockPool = {
+      query: async (queryText: string, params?: unknown[]) => {
+        executedQueries.push({ query: queryText, params });
+        return { rows: [], rowCount: 0 };
+      },
+      connect: async () => rollbackMockClient,
+      end: async () => {}
+    } as any;
+
+    const rollbackAdapter = new PostgresPoolAdapter(rollbackMockPool);
+
+    await expect(
+      rollbackAdapter.withTransaction(async () => {
+        const delStmt = rollbackAdapter.prepare('DELETE FROM invoices WHERE id = ?');
+        await delStmt.run('inv_fail');
+        throw new Error('Simulated atomic transaction failure');
+      })
+    ).rejects.toThrow('Simulated atomic transaction failure');
+
+    expect(executedQueries.some((q) => q.query === 'ROLLBACK;')).toBe(true);
+    expect(rollbackClientReleased).toBe(true);
+  });
+
+  // =========================================================================
+  // 9. Complete Production Path & API-Level Multi-Request Persistence Proof
+  // =========================================================================
+  it('proves the complete production path (Express API -> AsyncRepository -> PostgresPoolAdapter -> pg.Pool) with writes surviving separate requests and strict TLS certificate validation', async () => {
+    // 1. Verify strict TLS certificate validation (rejectUnauthorized is true)
+    const tlsConfig = buildPostgresSslConfig('postgresql://postgres.ref:secret@aws-0-us-east-1.pooler.supabase.com:6543/postgres');
+    expect(typeof tlsConfig === 'object' && tlsConfig.rejectUnauthorized).toBe(true);
+
+    const localhostTls = buildPostgresSslConfig('postgresql://postgres:secret@localhost:5432/postgres');
+    expect(localhostTls).toBe(false);
+
+    // 2. Instantiate a real pg.Pool drop-in with complete Supabase PostgreSQL DDL
+    const memDb = newDb({ autoCreateForeignKeyIndices: true });
+    memDb.public.registerFunction({
+      name: 'length',
+      args: [DataType.text],
+      returns: DataType.integer,
+      implementation: (str: string) => (str ? str.length : 0)
+    });
+    const ddl = fs.readFileSync(path.resolve(process.cwd(), 'migrations/001_initial_supabase_schema.sql'), 'utf-8');
+    memDb.public.query(ddl);
+
+    const { Pool } = memDb.adapters.createPg();
+    const pgPool = new Pool();
+
+    // 3. Construct the production path: PostgresPoolAdapter -> AsyncInvoicePilotRepository -> Express createApp
+    const poolAdapter = new PostgresPoolAdapter(pgPool);
+    const asyncRepo = new AsyncInvoicePilotRepository(poolAdapter);
+    const config = loadAppConfig({
+      DATABASE_URL: 'postgresql://mock.supabase.internal:6543/postgres',
+      PAYPAL_MODE: 'sandbox',
+      APP_ENV: 'test'
+    }, { loadDotEnvFile: false });
+    const app = createApp(config, undefined, asyncRepo as any);
+
+    // 4. Request 1: POST /api/auth/register (write user & initial settings)
+    const regRes = await request(app)
+      .post('/api/auth/register')
+      .send({
+        email: 'persistent.owner@example.com',
+        password: 'SecurePassword123!',
+        displayName: 'Persistent PostgreSQL Owner'
+      });
+    expect(regRes.status).toBe(201);
+    const token = regRes.body.sessionToken;
+    expect(token).toBeTruthy();
+
+    // 5. Request 2: POST /api/clients (write client in a separate HTTP request)
+    const clientRes = await request(app)
+      .post('/api/clients')
+      .set('x-session-token', token)
+      .send({
+        fullName: 'Surviving Client',
+        email: 'surviving@client.example.com',
+        defaultCurrency: 'USD'
+      });
+    expect(clientRes.status).toBe(201);
+    const clientId = clientRes.body.client.id;
+
+    // 6. Request 3: GET /api/clients (read client back across a separate HTTP request)
+    const listClientsRes = await request(app)
+      .get('/api/clients')
+      .set('x-session-token', token);
+    expect(listClientsRes.status).toBe(200);
+    expect(listClientsRes.body.clients.some((c: any) => c.id === clientId && c.fullName === 'Surviving Client')).toBe(true);
+
+    // 7. Request 4: POST /api/invoices (create multi-item invoice draft across separate request)
+    const invoiceRes = await request(app)
+      .post('/api/invoices')
+      .set('x-session-token', token)
+      .send({
+        clientId,
+        invoiceNumber: 'INV-PERSIST-9001',
+        currencyCode: 'USD',
+        taxRateBps: 1000,
+        issueDate: '2026-11-01',
+        dueDate: '2026-11-20',
+        items: [
+          {
+            description: 'Async PostgreSQL Architecture',
+            quantity: 2,
+            unitAmountMinor: 75000,
+            currencyCode: 'USD'
+          }
+        ]
+      });
+    expect(invoiceRes.status).toBe(201);
+    const invoiceId = invoiceRes.body.invoice.id;
+
+    // 8. Request 5: GET /api/invoices/:id (read invoice back across separate request)
+    const getInvoiceRes = await request(app)
+      .get(`/api/invoices/${invoiceId}`)
+      .set('x-session-token', token);
+    expect(getInvoiceRes.status).toBe(200);
+    expect(getInvoiceRes.body.invoice.totalMinor).toBe(165000); // 150000 + 10% tax (15000) = 165000
+
+    // 9. Request 6: POST /api/actions (request human approval slip across separate request)
+    const actionRes = await request(app)
+      .post('/api/actions')
+      .set('x-session-token', token)
+      .send({ invoiceId });
+    expect(actionRes.status).toBe(201);
+    const actionId = actionRes.body.action.id;
+
+    // 10. Request 7: POST /api/actions/:id/approve (approve action across separate request)
+    const approveRes = await request(app)
+      .post(`/api/actions/${actionId}/approve`)
+      .set('x-session-token', token);
+    expect(approveRes.status).toBe(200);
+    expect(approveRes.body.action.state).toBe('APPROVED');
+
+    // 11. Request 8: GET /api/actions/:id (verify state transition persisted across separate request)
+    const getActionRes = await request(app)
+      .get(`/api/actions/${actionId}`)
+      .set('x-session-token', token);
+    expect(getActionRes.status).toBe(200);
+    expect(getActionRes.body.action.state).toBe('APPROVED');
   });
 });
