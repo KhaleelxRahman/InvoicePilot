@@ -1,8 +1,38 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync } from 'node:sqlite';
 import type { ISqlDatabase } from './types.js';
 import { createIsolatedPostgresDatabase } from './postgresAdapter.js';
+
+let _DatabaseSyncClass: typeof DatabaseSync | null = null;
+
+function getSqliteDatabaseSyncClass(): typeof DatabaseSync {
+  if (_DatabaseSyncClass) {
+    return _DatabaseSyncClass;
+  }
+  if (typeof (process as any).getBuiltinModule === 'function') {
+    const mod = (process as any).getBuiltinModule('node:sqlite');
+    if (mod && mod.DatabaseSync) {
+      _DatabaseSyncClass = mod.DatabaseSync;
+      return _DatabaseSyncClass!;
+    }
+  }
+  try {
+    const req = typeof require === 'function' ? require : undefined;
+    if (req) {
+      const mod = req('node:sqlite');
+      if (mod && mod.DatabaseSync) {
+        _DatabaseSyncClass = mod.DatabaseSync;
+        return _DatabaseSyncClass!;
+      }
+    }
+  } catch {
+    // Fall through
+  }
+  throw new Error(
+    'SQLite engine (node:sqlite) is not available in this environment. In Netlify serverless production, configure Supabase PostgreSQL via DATABASE_URL.'
+  );
+}
 
 export const STAGE04_SCHEMA_VERSION = 1;
 export const STAGE09_SCHEMA_VERSION = 2;
@@ -353,10 +383,23 @@ export function openAndMigrateDatabase(dbFilePath: string): any {
     return createIsolatedPostgresDatabase();
   }
 
+  const isNetlify = Boolean(
+    process.env.NETLIFY === 'true' ||
+    process.env.LAMBDA_TASK_ROOT ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME
+  );
+
+  if (isNetlify && !isPostgresDatabaseUrl(dbFilePath)) {
+    throw new Error(
+      'SQLite database is not permitted in Netlify serverless functions. Supabase PostgreSQL connection string (DATABASE_URL) is required.'
+    );
+  }
+
   const resolvedPath = path.resolve(process.cwd(), dbFilePath);
   fs.mkdirSync(path.dirname(resolvedPath), { recursive: true });
 
-  const db = new DatabaseSync(resolvedPath);
+  const DatabaseSyncClass = getSqliteDatabaseSyncClass();
+  const db = new DatabaseSyncClass(resolvedPath);
   db.exec('PRAGMA journal_mode = WAL;');
   db.exec('PRAGMA foreign_keys = ON;');
   db.exec('PRAGMA busy_timeout = 5000;');

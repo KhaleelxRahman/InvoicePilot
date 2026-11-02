@@ -57,8 +57,17 @@ export function loadAppConfig(
   const safeGeminiTimeoutMs =
     Number.isFinite(geminiTimeoutRaw) && geminiTimeoutRaw >= 100 ? geminiTimeoutRaw : 15000;
 
-  const defaultDbPath =
-    appEnv === 'test' ? 'data/invoicepilot.test.db' : 'data/invoicepilot.db';
+  const isNetlify = Boolean(
+    merged.NETLIFY === 'true' ||
+    merged.LAMBDA_TASK_ROOT ||
+    merged.AWS_LAMBDA_FUNCTION_NAME
+  );
+
+  const defaultDbPath = isNetlify
+    ? ''
+    : appEnv === 'test'
+      ? 'data/invoicepilot.test.db'
+      : 'data/invoicepilot.db';
   const databaseUrl = (merged.DATABASE_URL ?? '').trim() || defaultDbPath;
 
   return {

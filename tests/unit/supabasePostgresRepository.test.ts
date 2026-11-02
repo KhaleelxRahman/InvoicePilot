@@ -313,4 +313,58 @@ describe('Supabase PostgreSQL Repository Engine & Integration', () => {
     expect(approveRes.status).toBe(200);
     expect(approveRes.body.action.state).toBe('APPROVED');
   });
+
+  // =========================================================================
+  // 7. Netlify Serverless Function Safeguards & Unconfigured Handling
+  // =========================================================================
+  it('enforces serverless database safeguards: rejects ephemeral SQLite, serves /api/health with degraded status, rewrites Netlify function prefix, and guards data routes with 503', async () => {
+    const originalNetlify = process.env.NETLIFY;
+    process.env.NETLIFY = 'true';
+
+    try {
+      // 1. Calling openAndMigrateDatabase with an on-disk SQLite path under NETLIFY throws
+      expect(() => openAndMigrateDatabase('data/invoicepilot.db')).toThrow(
+        /SQLite database is not permitted in Netlify serverless functions/
+      );
+
+      // 2. Boot Netlify serverless app without DATABASE_URL
+      const baseConfig = loadAppConfig({
+        ...process.env,
+        NETLIFY: 'true',
+        DATABASE_URL: ''
+      });
+      const netlifyApp = createApp(baseConfig);
+
+      // 3. /api/health returns 200 with degraded configuration status
+      const healthRes = await request(netlifyApp).get('/api/health');
+      expect(healthRes.status).toBe(200);
+      expect(healthRes.body.status).toBe('degraded');
+      expect(healthRes.body.databaseConfigured).toBe(false);
+      expect(healthRes.body.databaseEngine).toBe('unconfigured-supabase');
+      expect(healthRes.body.message).toMatch(/Supabase PostgreSQL database connection \(DATABASE_URL\) is required/);
+
+      // 4. /.netlify/functions/api/health prefix is cleanly rewritten to /api/health
+      const prefixHealthRes = await request(netlifyApp).get('/.netlify/functions/api/health');
+      expect(prefixHealthRes.status).toBe(200);
+      expect(prefixHealthRes.body.status).toBe('degraded');
+      expect(prefixHealthRes.body.databaseConfigured).toBe(false);
+
+      // 5. Database-dependent routes return 503 Service Unavailable with clear configuration instructions
+      const invoicesRes = await request(netlifyApp).get('/api/invoices');
+      expect(invoicesRes.status).toBe(503);
+      expect(invoicesRes.body.error).toBe('DATABASE_CONFIGURATION_REQUIRED');
+      expect(invoicesRes.body.databaseConfigured).toBe(false);
+      expect(invoicesRes.body.message).toMatch(/DATABASE_URL.*is required/);
+
+      const clientsRes = await request(netlifyApp).get('/api/clients');
+      expect(clientsRes.status).toBe(503);
+      expect(clientsRes.body.error).toBe('DATABASE_CONFIGURATION_REQUIRED');
+    } finally {
+      if (originalNetlify !== undefined) {
+        process.env.NETLIFY = originalNetlify;
+      } else {
+        delete process.env.NETLIFY;
+      }
+    }
+  });
 });

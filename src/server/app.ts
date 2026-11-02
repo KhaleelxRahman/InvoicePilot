@@ -212,6 +212,19 @@ export function createApiApp(
   geminiAgent?: GeminiInvoiceAgent
 ): Express {
   const app = express();
+
+  // Normalize Netlify Functions URL prefix if invoked via /.netlify/functions/api
+  app.use((req: Request, _res: Response, next: NextFunction) => {
+    if (req.url.startsWith('/.netlify/functions/api')) {
+      const remainder = req.url.slice('/.netlify/functions/api'.length);
+      req.url = remainder.startsWith('/') ? `/api${remainder}` : `/api/${remainder}`;
+      if (req.url === '/api/' || req.url === '/api') {
+        req.url = '/api';
+      }
+    }
+    next();
+  });
+
   const adapter =
     paypalAdapter ??
     createPayPalAdapter({
@@ -222,16 +235,43 @@ export function createApiApp(
       timeoutMs: config.paypalTimeoutMs
     });
 
-  const repo =
-    repository ??
-    (() => {
-      const db = openAndMigrateDatabase(config.databaseUrl);
-      const r = new InvoicePilotRepository(db);
-      if (!r.getUserById(DEMO_TENANT_USER_ID)) {
-        r.resetAndSeedDemoTenant();
+  const isNetlify = Boolean(
+    process.env.NETLIFY === 'true' ||
+    process.env.LAMBDA_TASK_ROOT ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME
+  );
+
+  const isDbConfigured = Boolean(
+    repository ||
+    (config.databaseUrl && (isPostgresDatabaseUrl(config.databaseUrl) || !isNetlify))
+  );
+
+  let repo: InvoicePilotRepository;
+  let demoTenantReady = false;
+
+  if (repository) {
+    repo = repository;
+    demoTenantReady = Boolean(repo.getUserById(DEMO_TENANT_USER_ID));
+  } else if (isDbConfigured) {
+    const db = openAndMigrateDatabase(config.databaseUrl);
+    repo = new InvoicePilotRepository(db);
+    if (!repo.getUserById(DEMO_TENANT_USER_ID)) {
+      repo.resetAndSeedDemoTenant();
+    }
+    demoTenantReady = Boolean(repo.getUserById(DEMO_TENANT_USER_ID));
+  } else {
+    // Unconfigured repository placeholder for serverless environments awaiting Supabase DATABASE_URL
+    repo = new Proxy({} as InvoicePilotRepository, {
+      get(_target, prop) {
+        if (prop === 'getUserById') return () => null;
+        return () => {
+          throw new Error(
+            'Database unconfigured: Supabase PostgreSQL connection string (DATABASE_URL) is required in production.'
+          );
+        };
       }
-      return r;
-    })();
+    });
+  }
 
   const agent =
     geminiAgent ??
@@ -245,6 +285,7 @@ export function createApiApp(
   app.locals.paypalAdapter = adapter;
   app.locals.repository = repo;
   app.locals.geminiAgent = agent;
+  app.locals.databaseConfigured = isDbConfigured;
 
   app.disable('x-powered-by');
   app.use(express.json({ limit: '256kb' }));
@@ -257,11 +298,29 @@ export function createApiApp(
     next();
   });
 
+  // Intercept requests to database-dependent endpoints when database is unconfigured (e.g. on Netlify prior to Supabase setup)
+  app.use('/api', (req: Request, res: Response, next: NextFunction) => {
+    if (req.path === '/health' || req.path === '/health/') {
+      return next();
+    }
+    if (!app.locals.databaseConfigured) {
+      res.status(503).json({
+        error: 'DATABASE_CONFIGURATION_REQUIRED',
+        message:
+          'Supabase PostgreSQL database connection (DATABASE_URL) is required for persistent production operations. No database credentials are configured in Netlify environment variables.',
+        databaseConfigured: false,
+        documentation: 'docs/DATABASE.md'
+      });
+      return;
+    }
+    next();
+  });
+
   // Stage 1, 3, 4, 5, 6, 7, 8 & 9: Health check route with explicit adapter, database, Gemini & Auth metadata
   app.get('/api/health', (_req: Request, res: Response) => {
-    const demoTenantReady = Boolean(repo.getUserById(DEMO_TENANT_USER_ID));
+    const dbConfigured = Boolean(app.locals.databaseConfigured);
     res.status(200).json({
-      status: 'ok',
+      status: dbConfigured ? 'ok' : 'degraded',
       service: 'invoicepilot',
       stage: 'stage-09-auth-onboarding',
       environment: config.appEnv,
@@ -280,10 +339,18 @@ export function createApiApp(
       webhookConfigured: Boolean(config.paypalWebhookId),
       geminiConfigured: agent.isConfigured,
       geminiModel: config.geminiModel,
-      databaseEngine: isPostgresDatabaseUrl(config.databaseUrl) ? 'postgresql-supabase' : 'sqlite-wal',
+      databaseEngine: dbConfigured
+        ? isPostgresDatabaseUrl(config.databaseUrl)
+          ? 'postgresql-supabase'
+          : 'sqlite-wal'
+        : 'unconfigured-supabase',
+      databaseConfigured: dbConfigured,
       schemaVersion: CURRENT_SCHEMA_VERSION,
       demoTenantReady,
       approvalGateEnforced: true,
+      message: dbConfigured
+        ? undefined
+        : 'Supabase PostgreSQL database connection (DATABASE_URL) is required in production but has not been configured in Netlify environment variables.',
       timestamp: new Date().toISOString()
     });
   });
