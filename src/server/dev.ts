@@ -1,3 +1,4 @@
+import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
@@ -16,15 +17,22 @@ async function startDevServer() {
   const apiApp = createApiApp(config);
   app.use(apiApp);
 
+  const httpServer = http.createServer(app);
+
   const vite = await createViteServer({
     root: rootDir,
-    server: { middlewareMode: true },
+    server: {
+      middlewareMode: true,
+      hmr: {
+        server: httpServer
+      }
+    },
     appType: 'spa'
   });
 
   app.use(vite.middlewares);
 
-  app.listen(config.port, () => {
+  httpServer.listen(config.port, () => {
     console.log(
       `[InvoicePilot] Stage 1 server listening on ${config.appBaseUrl} (PAYPAL_MODE=${config.paypalMode})`
     );

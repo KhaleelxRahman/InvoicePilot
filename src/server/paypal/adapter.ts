@@ -69,6 +69,21 @@ export interface SendInvoiceAdapterInput {
   idempotencyKey?: string;
 }
 
+export interface SendReminderAdapterInput {
+  providerInvoiceId: string;
+  subject: string;
+  note: string;
+  sendToRecipient?: boolean;
+}
+
+export interface ReminderDeliverySnapshot {
+  reminded: boolean;
+  providerInvoiceId: string;
+  remindedAt: string;
+  deliveryEvidence: string;
+  paypalDebugId?: string;
+}
+
 export interface ProviderInvoiceSnapshot {
   providerInvoiceId: string;
   providerStatus: ProviderConfirmedStatus;
@@ -87,6 +102,21 @@ export interface OAuthVerifySnapshot {
   redactedTokenPreview: string;
   appId?: string;
   scopeCount: number;
+}
+
+export interface VerifyWebhookSignatureInput {
+  authAlgo: string;
+  certUrl: string;
+  transmissionId: string;
+  transmissionSig: string;
+  transmissionTime: string;
+  webhookId: string;
+  webhookEvent: Record<string, unknown>;
+}
+
+export interface WebhookVerificationSnapshot {
+  verificationStatus: 'SUCCESS' | 'FAILURE';
+  paypalDebugId?: string;
 }
 
 /**
@@ -124,6 +154,12 @@ export interface PayPalAdapter {
   sendInvoice(
     input: SendInvoiceAdapterInput
   ): Promise<PayPalAdapterResult<ProviderInvoiceSnapshot>>;
+  sendInvoiceReminder?(
+    input: SendReminderAdapterInput
+  ): Promise<PayPalAdapterResult<ReminderDeliverySnapshot>>;
+  verifyWebhookSignature?(
+    input: VerifyWebhookSignatureInput
+  ): Promise<PayPalAdapterResult<WebhookVerificationSnapshot>>;
 }
 
 export interface PayPalAdapterOptions {
@@ -131,6 +167,7 @@ export interface PayPalAdapterOptions {
   clientId?: string;
   clientSecret?: string;
   invoicerEmail?: string;
+  webhookId?: string;
   baseUrl?: string;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
@@ -343,6 +380,76 @@ export class MockPayPalAdapter implements PayPalAdapter {
       isMock: true,
       modeLabel: this.modeLabel,
       data: { ...updated }
+    };
+  }
+
+  public async sendInvoiceReminder(
+    input: SendReminderAdapterInput
+  ): Promise<PayPalAdapterResult<ReminderDeliverySnapshot>> {
+    const existing = this.store.get(input.providerInvoiceId);
+    if (!existing) {
+      return {
+        ok: false,
+        mode: 'mock',
+        isMock: true,
+        modeLabel: this.modeLabel,
+        error: {
+          code: 'NOT_FOUND',
+          message: `[MOCK MODE] Simulated invoice "${input.providerInvoiceId}" was not found.`,
+          retryableAfterReconcile: false,
+          reconcileRequired: false,
+          httpStatus: 404
+        }
+      };
+    }
+
+    return {
+      ok: true,
+      mode: 'mock',
+      isMock: true,
+      modeLabel: this.modeLabel,
+      data: {
+        reminded: true,
+        providerInvoiceId: input.providerInvoiceId,
+        remindedAt: new Date().toISOString(),
+        deliveryEvidence: `MOCK_REMINDER_DELIVERED:${input.providerInvoiceId}`
+      }
+    };
+  }
+
+  public setSimulatedStatus(
+    providerInvoiceId: string,
+    nextStatus: ProviderConfirmedStatus
+  ): ProviderInvoiceSnapshot | null {
+    const existing = this.store.get(providerInvoiceId);
+    if (!existing) {
+      return null;
+    }
+    const updated: ProviderInvoiceSnapshot = {
+      ...existing,
+      providerStatus: nextStatus
+    };
+    this.store.set(providerInvoiceId, updated);
+    return { ...updated };
+  }
+
+  public async verifyWebhookSignature(
+    input: VerifyWebhookSignatureInput
+  ): Promise<PayPalAdapterResult<WebhookVerificationSnapshot>> {
+    const isVerified =
+      Boolean(input.webhookId?.trim()) &&
+      Boolean(input.transmissionId?.trim()) &&
+      Boolean(input.transmissionTime?.trim()) &&
+      input.transmissionSig === 'MOCK-VERIFIED-SIGNATURE';
+
+    return {
+      ok: true,
+      mode: 'mock',
+      isMock: true,
+      modeLabel: this.modeLabel,
+      data: {
+        verificationStatus: isVerified ? 'SUCCESS' : 'FAILURE'
+      }
     };
   }
 }
@@ -885,6 +992,231 @@ export class SandboxPayPalAdapter implements PayPalAdapter {
           ),
           retryableAfterReconcile: true,
           reconcileRequired: true
+        }
+      };
+    }
+  }
+
+  public async sendInvoiceReminder(
+    input: SendReminderAdapterInput
+  ): Promise<PayPalAdapterResult<ReminderDeliverySnapshot>> {
+    if (this.isMock) {
+      return {
+        ok: true,
+        mode: 'mock',
+        isMock: true,
+        modeLabel: this.modeLabel,
+        data: {
+          reminded: true,
+          providerInvoiceId: input.providerInvoiceId,
+          remindedAt: new Date().toISOString(),
+          deliveryEvidence: `MOCK_REMINDER_DELIVERED:${input.providerInvoiceId}`
+        }
+      };
+    }
+
+    if (!this.clientId || !this.clientSecret) {
+      return this.missingCredentialsResult();
+    }
+
+    const tokenResult = await this.acquireAccessToken();
+    if (!tokenResult.ok) {
+      return {
+        ok: false,
+        mode: 'sandbox',
+        isMock: false,
+        modeLabel: this.modeLabel,
+        error: tokenResult.error
+      };
+    }
+
+    try {
+      const response = await fetchWithTimeout(
+        `${this.baseUrl}/v2/invoicing/invoices/${encodeURIComponent(input.providerInvoiceId)}/remind`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${tokenResult.accessToken}`,
+            'Content-Type': 'application/json',
+            Accept: 'application/json'
+          },
+          body: JSON.stringify({
+            subject: input.subject,
+            note: input.note,
+            send_to_recipient: input.sendToRecipient ?? true,
+            send_to_invoicer: false
+          })
+        },
+        this.timeoutMs,
+        this.fetchImpl
+      );
+
+      const debugId = response.headers.get('paypal-debug-id') ?? undefined;
+
+      if (response.status === 200 || response.status === 204) {
+        return {
+          ok: true,
+          mode: 'sandbox',
+          isMock: false,
+          modeLabel: this.modeLabel,
+          data: {
+            reminded: true,
+            providerInvoiceId: input.providerInvoiceId,
+            remindedAt: new Date().toISOString(),
+            deliveryEvidence: `PAYPAL_SANDBOX_REMINDER_SENT:${input.providerInvoiceId}:${debugId ?? 'ok'}`,
+            paypalDebugId: debugId
+          }
+        };
+      }
+
+      const rawBody = await response.json().catch(() => ({}));
+      return {
+        ok: false,
+        mode: 'sandbox',
+        isMock: false,
+        modeLabel: this.modeLabel,
+        error: this.mapHttpFailure(response.status, rawBody, debugId, true, [
+          tokenResult.accessToken
+        ])
+      };
+    } catch (err) {
+      const isTimeout = isAbortOrTimeoutError(err);
+      const rawMsg =
+        err instanceof Error ? err.message : 'Network error during PayPal invoice reminder';
+      return {
+        ok: false,
+        mode: 'sandbox',
+        isMock: false,
+        modeLabel: this.modeLabel,
+        error: {
+          code: isTimeout ? 'TIMEOUT_RECONCILE_REQUIRED' : 'PROVIDER_ERROR',
+          message: sanitizeErrorMessage(
+            isTimeout
+              ? `PayPal invoice reminder timed out (${rawMsg}).`
+              : rawMsg,
+            [this.clientId, this.clientSecret, tokenResult.accessToken]
+          ),
+          retryableAfterReconcile: true,
+          reconcileRequired: false
+        }
+      };
+    }
+  }
+
+  public async verifyWebhookSignature(
+    input: VerifyWebhookSignatureInput
+  ): Promise<PayPalAdapterResult<WebhookVerificationSnapshot>> {
+    if (!this.clientId || !this.clientSecret) {
+      return this.missingCredentialsResult();
+    }
+
+    if (
+      !input.webhookId.trim() ||
+      !input.transmissionId.trim() ||
+      !input.transmissionSig.trim() ||
+      !input.transmissionTime.trim() ||
+      !input.certUrl.trim() ||
+      !input.authAlgo.trim()
+    ) {
+      return {
+        ok: false,
+        mode: 'sandbox',
+        isMock: false,
+        modeLabel: this.modeLabel,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message:
+            'Missing required PayPal webhook signature headers or PAYPAL_WEBHOOK_ID configuration.',
+          retryableAfterReconcile: false,
+          reconcileRequired: false,
+          httpStatus: 400
+        }
+      };
+    }
+
+    const tokenResult = await this.acquireAccessToken();
+    if (!tokenResult.ok) {
+      return {
+        ok: false,
+        mode: 'sandbox',
+        isMock: false,
+        modeLabel: this.modeLabel,
+        error: tokenResult.error
+      };
+    }
+
+    try {
+      const response = await fetchWithTimeout(
+        `${this.baseUrl}/v1/notifications/verify-webhook-signature`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${tokenResult.accessToken}`,
+            'Content-Type': 'application/json',
+            Accept: 'application/json'
+          },
+          body: JSON.stringify({
+            auth_algo: input.authAlgo,
+            cert_url: input.certUrl,
+            transmission_id: input.transmissionId,
+            transmission_sig: input.transmissionSig,
+            transmission_time: input.transmissionTime,
+            webhook_id: input.webhookId,
+            webhook_event: input.webhookEvent
+          })
+        },
+        this.timeoutMs,
+        this.fetchImpl
+      );
+
+      const debugId = response.headers.get('paypal-debug-id') ?? undefined;
+      const rawBody = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        return {
+          ok: false,
+          mode: 'sandbox',
+          isMock: false,
+          modeLabel: this.modeLabel,
+          error: this.mapHttpFailure(response.status, rawBody, debugId, false, [
+            tokenResult.accessToken
+          ])
+        };
+      }
+
+      const rawStatus =
+        typeof rawBody === 'object' && rawBody !== null && 'verification_status' in rawBody
+          ? String((rawBody as Record<string, unknown>).verification_status)
+          : 'FAILURE';
+
+      return {
+        ok: true,
+        mode: 'sandbox',
+        isMock: false,
+        modeLabel: this.modeLabel,
+        data: {
+          verificationStatus: rawStatus === 'SUCCESS' ? 'SUCCESS' : 'FAILURE',
+          paypalDebugId: debugId
+        }
+      };
+    } catch (err) {
+      const isTimeout = isAbortOrTimeoutError(err);
+      const rawMsg =
+        err instanceof Error ? err.message : 'Network error during PayPal webhook signature verification';
+      return {
+        ok: false,
+        mode: 'sandbox',
+        isMock: false,
+        modeLabel: this.modeLabel,
+        error: {
+          code: isTimeout ? 'TIMEOUT_RECONCILE_REQUIRED' : 'PROVIDER_ERROR',
+          message: sanitizeErrorMessage(rawMsg, [
+            this.clientId,
+            this.clientSecret,
+            tokenResult.accessToken
+          ]),
+          retryableAfterReconcile: true,
+          reconcileRequired: false
         }
       };
     }

@@ -1,8 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import type { ISqlDatabase } from './types.js';
+import { createIsolatedPostgresDatabase } from './postgresAdapter.js';
 
 export const STAGE04_SCHEMA_VERSION = 1;
+export const STAGE09_SCHEMA_VERSION = 2;
+export const STAGE11_SCHEMA_VERSION = 3;
+export const STAGE12_SCHEMA_VERSION = 4;
+export const STAGE14_SCHEMA_VERSION = 5;
+export const CURRENT_SCHEMA_VERSION = 5;
 
 /**
  * Currency exponent map (minor units per major unit).
@@ -130,6 +137,7 @@ CREATE TABLE IF NOT EXISTS invoices (
   tax_rate_bps INTEGER NOT NULL DEFAULT 0 CHECK (tax_rate_bps >= 0 AND tax_rate_bps <= 10000),
   tax_minor INTEGER NOT NULL DEFAULT 0 CHECK (tax_minor >= 0),
   total_minor INTEGER NOT NULL CHECK (total_minor >= 0 AND total_minor = subtotal_minor + tax_minor),
+  paid_amount_minor INTEGER NOT NULL DEFAULT 0 CHECK (paid_amount_minor >= 0),
   issue_date TEXT NOT NULL,
   due_date TEXT NOT NULL,
   notes TEXT,
@@ -210,8 +218,9 @@ CREATE TABLE IF NOT EXISTS reminders (
   subject TEXT NOT NULL,
   body TEXT NOT NULL,
   approval_state TEXT NOT NULL DEFAULT 'DRAFTED' CHECK (
-    approval_state IN ('DRAFTED', 'PENDING_APPROVAL', 'APPROVED', 'SENT', 'REJECTED', 'FAILED')
+    approval_state IN ('DRAFTED', 'PENDING_APPROVAL', 'APPROVED', 'SCHEDULED', 'SENT', 'REJECTED', 'FAILED')
   ),
+  scheduled_for TEXT,
   sent_at TEXT,
   delivery_evidence TEXT,
   created_at TEXT NOT NULL,
@@ -280,13 +289,70 @@ CREATE TABLE IF NOT EXISTS notifications (
 );
 
 CREATE INDEX IF NOT EXISTS idx_notifications_owner ON notifications(owner_user_id, is_read);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+
+CREATE TABLE IF NOT EXISTS invoice_templates (
+  id TEXT PRIMARY KEY,
+  owner_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  unit_amount_minor INTEGER NOT NULL CHECK (unit_amount_minor >= 0),
+  currency_code TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_invoice_templates_owner ON invoice_templates(owner_user_id);
+
+CREATE TABLE IF NOT EXISTS onboarding_progress (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  current_step INTEGER NOT NULL DEFAULT 1 CHECK (current_step BETWEEN 1 AND 5),
+  completed INTEGER NOT NULL DEFAULT 0 CHECK (completed IN (0, 1)),
+  skipped INTEGER NOT NULL DEFAULT 0 CHECK (skipped IN (0, 1)),
+  business_name TEXT,
+  business_email TEXT,
+  default_currency TEXT DEFAULT 'USD',
+  max_invoice_amount_minor INTEGER DEFAULT 1000000,
+  default_reminder_tone TEXT DEFAULT 'polite' CHECK (default_reminder_tone IN ('polite', 'firm', 'final')),
+  sandbox_tested INTEGER NOT NULL DEFAULT 0 CHECK (sandbox_tested IN (0, 1)),
+  first_client_id TEXT REFERENCES clients(id) ON DELETE SET NULL,
+  updated_at TEXT NOT NULL
+);
 `;
 
 /**
- * Opens an on-disk SQLite database file, enables WAL mode and foreign key constraints,
- * and applies Stage 04 schema migrations idempotently.
+ * Determines whether a database connection string targets PostgreSQL / Supabase.
  */
-export function openAndMigrateDatabase(dbFilePath: string): DatabaseSync {
+export function isPostgresDatabaseUrl(url: string): boolean {
+  const trimmed = (url || '').trim().toLowerCase();
+  return (
+    trimmed.startsWith('postgres://') ||
+    trimmed.startsWith('postgresql://') ||
+    trimmed.startsWith('supabase://') ||
+    trimmed === ':memory-postgres:'
+  );
+}
+
+/**
+ * Opens and migrates a database instance.
+ * Automatically selects PostgreSQL adapter for Supabase / PostgreSQL URLs,
+ * and on-disk SQLite for local development and local test suites.
+ */
+export function openAndMigrateDatabase(dbFilePath: string): any {
+  if (isPostgresDatabaseUrl(dbFilePath)) {
+    return createIsolatedPostgresDatabase();
+  }
+
   const resolvedPath = path.resolve(process.cwd(), dbFilePath);
   fs.mkdirSync(path.dirname(resolvedPath), { recursive: true });
 
@@ -297,14 +363,103 @@ export function openAndMigrateDatabase(dbFilePath: string): DatabaseSync {
 
   db.exec(INITIAL_SCHEMA_SQL);
 
-  const existingMigration = db
+  const existingMigration1 = db
     .prepare('SELECT version FROM schema_migrations WHERE version = ?')
     .get(STAGE04_SCHEMA_VERSION) as { version: number } | undefined;
 
-  if (!existingMigration) {
+  if (!existingMigration1) {
     db.prepare(
       'INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)'
     ).run(STAGE04_SCHEMA_VERSION, '001_initial_invoicepilot_schema', new Date().toISOString());
+  }
+
+  const existingMigration2 = db
+    .prepare('SELECT version FROM schema_migrations WHERE version = ?')
+    .get(STAGE09_SCHEMA_VERSION) as { version: number } | undefined;
+
+  if (!existingMigration2) {
+    db.prepare(
+      'INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)'
+    ).run(
+      STAGE09_SCHEMA_VERSION,
+      '002_stage09_sessions_and_onboarding',
+      new Date().toISOString()
+    );
+  }
+
+  const existingMigration3 = db
+    .prepare('SELECT version FROM schema_migrations WHERE version = ?')
+    .get(STAGE11_SCHEMA_VERSION) as { version: number } | undefined;
+
+  if (!existingMigration3) {
+    // Migration 003: Reminders scheduled_for column
+    try {
+      db.exec('ALTER TABLE reminders ADD COLUMN scheduled_for TEXT;');
+    } catch {
+      // Column may already exist
+    }
+
+    db.prepare(
+      'INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)'
+    ).run(
+      STAGE11_SCHEMA_VERSION,
+      '003_stage11_reminders_scheduling',
+      new Date().toISOString()
+    );
+  }
+
+  const existingMigration4 = db
+    .prepare('SELECT version FROM schema_migrations WHERE version = ?')
+    .get(STAGE12_SCHEMA_VERSION) as { version: number } | undefined;
+
+  if (!existingMigration4) {
+    // Migration 004: Invoices paid_amount_minor column
+    try {
+      db.exec('ALTER TABLE invoices ADD COLUMN paid_amount_minor INTEGER NOT NULL DEFAULT 0;');
+    } catch {
+      // Column may already exist
+    }
+
+    db.prepare(
+      'INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)'
+    ).run(
+      STAGE12_SCHEMA_VERSION,
+      '004_stage12_invoices_paid_amount',
+      new Date().toISOString()
+    );
+  }
+
+  const existingMigration5 = db
+    .prepare('SELECT version FROM schema_migrations WHERE version = ?')
+    .get(STAGE14_SCHEMA_VERSION) as { version: number } | undefined;
+
+  if (!existingMigration5) {
+    // Migration 005: Invoice templates table
+    try {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS invoice_templates (
+          id TEXT PRIMARY KEY,
+          owner_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          title TEXT NOT NULL,
+          description TEXT NOT NULL,
+          unit_amount_minor INTEGER NOT NULL CHECK (unit_amount_minor >= 0),
+          currency_code TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_invoice_templates_owner ON invoice_templates(owner_user_id);
+      `);
+    } catch {
+      // Table may already exist
+    }
+
+    db.prepare(
+      'INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)'
+    ).run(
+      STAGE14_SCHEMA_VERSION,
+      '005_stage14_invoice_templates',
+      new Date().toISOString()
+    );
   }
 
   return db;

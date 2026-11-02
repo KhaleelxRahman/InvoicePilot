@@ -13,37 +13,40 @@ A refined financial workspace inspired by paper invoices, ledgers, receipts, and
 
 ## Color tokens
 ### Light
-| Token | Value |
-|---|---|
-| desk | `#EEF0F3` |
-| sheet | `#FFFFFF` |
-| sheet-2 | `#E4E8ED` |
-| ink | `#151A21` |
-| ink-muted | `#566070` |
-| rule | `#D3D8DF` |
-| primary | `#0E5A6B` |
-| on-primary | `#FFFFFF` |
-| highlight | `#F4D35E` |
-| paid | `#1B7F4B` |
-| late | `#B3362B` |
-| caution | `#9A6200` |
-| info | `#2F5FA8` |
+| Token | Value | Description |
+|---|---|---|
+| desk | `#F5F6F3` | Warm neutral paper desk surface |
+| sheet | `#FFFFFF` | Pristine card surface |
+| sheet-2 | `#EEF1ED` | Soft secondary surface |
+| ink | `#202923` | Deep slate-green ink |
+| ink-muted | `#66716A` | Muted secondary text |
+| rule | `#DEE4DF` | Crisp subtle border |
+| primary | `#285B4A` | Deep forest / sage green |
+| on-primary | `#FFFFFF` | Text on primary |
+| subtle-primary | `#E9F1EC` | Soft primary background |
+| highlight | `#F3EFE6` | Soft warm parchment tint |
+| paid | `#236B4D` | Pine green success |
+| late | `#A83832` | Restrained burgundy / crimson |
+| caution | `#94601A` | Deep ochre / amber |
+| info | `#315A75` | Slate-teal |
+
 ### Dark
-| Token | Value |
-|---|---|
-| desk | `#0F151C` |
-| sheet | `#17202A` |
-| sheet-2 | `#1F2A36` |
-| ink | `#E7ECF1` |
-| ink-muted | `#98A5B5` |
-| rule | `#2C3947` |
-| primary | `#5CC3D0` |
-| on-primary | `#07161A` |
-| highlight | `#E9C441` |
-| paid | `#4FD38E` |
-| late | `#FF7A6E` |
-| caution | `#F0B450` |
-| info | `#7FAEF0` |
+| Token | Value | Description |
+|---|---|---|
+| desk | `#151A18` | Deep forest slate desk surface |
+| sheet | `#1C2420` | Refined dark card surface |
+| sheet-2 | `#242E29` | Raised dark secondary surface |
+| ink | `#E9EFEA` | Crisp light primary text |
+| ink-muted | `#A5B0A8` | Muted secondary text |
+| rule | `#344139` | Refined dark border |
+| primary | `#8FBFA6` | Calm sage green |
+| on-primary | `#11231B` | Text on primary |
+| subtle-primary | `rgba(143, 191, 166, 0.15)` | Dark primary tint |
+| highlight | `rgba(180, 160, 120, 0.15)` | Soft parchment tint |
+| paid | `#68C194` | Calm mint green |
+| late | `#E26D68` | Soft crimson |
+| caution | `#E09F45` | Muted amber |
+| info | `#7FA7C4` | Slate blue-teal |
 
 ## Design rules
 - No gradients or generic purple fintech look.

@@ -1,7 +1,32 @@
 # Database Design
 
 ## Status
-Implemented and verified in Stage 04 (`2026-10-31`) using on-disk SQLite (`node:sqlite` `DatabaseSync` with WAL journaling and `PRAGMA foreign_keys = ON`) in `src/server/db/schema.ts` and `src/server/db/repository.ts`. Tested via `tests/unit/persistence.test.ts` (6/6 passed).
+Implemented and verified across Stages 04, 09, 11, 12, and 14 (`CURRENT_SCHEMA_VERSION = 5`).
+Supports dual persistence engines:
+1. **Supabase Free PostgreSQL** for serverless production deployment via Netlify Functions (`migrations/001_initial_supabase_schema.sql` and `npm run db:migrate:supabase`).
+2. **On-disk SQLite** (`node:sqlite` `DatabaseSync` with WAL journaling and `PRAGMA foreign_keys = ON`) for offline local development and test suite (`data/invoicepilot.db` and `data/invoicepilot.test.db`).
+
+## Supabase PostgreSQL Architecture & Migration 001
+- **DDL & Schema Location**: `migrations/001_initial_supabase_schema.sql`
+- **Migration CLI**: `npm run db:migrate:supabase` (`src/server/db/supabaseMigrationCli.ts`)
+- **Connection Method**: Parameterized connection via `pg.Pool` with SSL mode `require` over Supabase Transaction Pooler (`port 6543`) to prevent connection exhaustion in serverless Netlify Functions.
+- **Limits & Constraints (Free Plan)**:
+  - 500 MB database storage limit.
+  - Pauses after 7 consecutive days of inactivity (can be resumed via Supabase project dashboard).
+- **Security & Data Isolation**:
+  - Deterministic synthetic demo tenant (`usr_demo_tenant_01`, `demo.freelancer@invoicepilot.local`) seeded automatically with ON CONFLICT DO NOTHING.
+  - No real user credentials, local secrets, or local customer data are ever uploaded to Supabase.
+  - Server-side environment variable `DATABASE_URL` stores the connection string; never exposed to browser bundles or client code.
+
+## Stage 12 Implemented Schema Migration & Insights Engine
+- **Migration 004 (`004_stage12_invoices_paid_amount`):**
+  - Added `paid_amount_minor INTEGER NOT NULL DEFAULT 0 CHECK (paid_amount_minor >= 0)` to `invoices`.
+  - Enables recording partial manual payments via `POST /api/invoices/:id/partial-payment` and `repo.recordPartialPayment`.
+  - Outstanding balance is server-recalculated as `Math.max(0, total_minor - paid_amount_minor)`. When cumulative payments equal `total_minor`, provider status automatically transitions to `PAID`.
+- **Grounded Insights Engine (`src/server/insights/cashFlowInsights.ts`):**
+  - **Receivables Aging Buckets:** Segregated strictly by currency code (`Record<string, CurrencyAgingSummary>`). Buckets: `current` (due on or after asOfDate), `days1_30` (1–30 days overdue), `days31_60` (31–60 days overdue), `days61_90` (61–90 days overdue), and `days90Plus` (91+ days overdue). Currencies are NEVER combined without a verified exchange rate.
+  - **Client Reliability & Slow-Payer Rankings:** Analyzes payment latency beyond due date (`averageDaysToPay`) and late payment rate. Tags: `PAYS_ON_TIME`, `OCCASIONALLY_LATE`, `FREQUENTLY_LATE`, `INSUFFICIENT_HISTORY`. Clients with 0 completed payments are explicitly marked `INSUFFICIENT_HISTORY` with `averageDaysToPay: null`.
+  - **30-Day Cash-Flow Forecast:** Segregated by currency into 4 sub-periods (`days1_7`, `days8_14`, `days15_21`, `days22_30`). Inflows are probability-weighted based on client reliability. Projections are explicitly marked `isEstimate: true` with uncertainty notices. Observed facts are strictly distinguished from forecast estimates.
 
 ## Stage 04 Implemented Schema & Money Representation
 - **Database Engine:** On-disk SQLite (`data/invoicepilot.db` in development/production, `data/invoicepilot.test.db` or isolated temp `.sqlite` files in tests).

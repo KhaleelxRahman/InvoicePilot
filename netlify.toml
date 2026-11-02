@@ -1,0 +1,27 @@
+# =============================================================================
+# InvoicePilot — Netlify Build & Serverless Configuration
+# Frontend: Vite Static SPA (dist/client)
+# Backend: Netlify Functions (Express API via serverless-http)
+# =============================================================================
+
+[build]
+  command = "npm run build"
+  publish = "dist/client"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+  external_node_modules = ["node:sqlite", "pg-native"]
+
+# Direct API routes to Netlify serverless function
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+  force = true
+
+# SPA client router fallback
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

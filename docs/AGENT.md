@@ -17,6 +17,7 @@ Help users prepare invoices, retrieve grounded information, draft reminders, and
 - `prepare_invoice_draft`
 - `get_invoice_details`
 - `request_invoice_send_approval`
+- `get_financial_insights`
 - `send_approved_invoice`
 
 Tool names and schemas must match the actual implementation. A model tool call is not authorization.
@@ -49,3 +50,18 @@ Missing client; ambiguous amount; invalid currency; missing due date; amount ove
 
 ## Privacy
 Store only necessary conversation data, never secrets, and document retention/deletion. Clearly communicate when the agent uses stored client or invoice data.
+
+## Stage 07 Verified Implementation & Model/Config Limitations
+- **Implementation (`src/server/agent/geminiAgent.ts`, `src/server/app.ts`, `src/client/App.tsx`)**:
+  - Uses the official Google Gemini REST `generateContent` endpoint (`POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`) with server-only `x-goog-api-key` authentication, `tools.functionDeclarations`, and `generationConfig.responseSchema` (`responseMimeType: "application/json"`).
+  - Implemented and schema-validated tools:
+    - `prepare_invoice_draft`: Resolves clients strictly from `repo.listClientsForOwner(ownerUserId)`, validates ISO-4217 currency, YYYY-MM-DD calendar dates, positive integer quantities, decimal unit prices, tax rates, and workspace safety limit (`maxInvoiceAmountMinor`) before saving a local `DRAFT`.
+    - `get_invoice_details`: Retrieves an authorized invoice record via `repo.getInvoiceForOwner(ownerUserId, id)` (denying cross-owner access with `403 FORBIDDEN_OWNER_MISMATCH`).
+    - `request_invoice_send_approval`: Proposes an existing local draft for human review on the Approval Slip (`DRAFTED -> PENDING_APPROVAL`).
+    - `ask_clarification`: Requests concise user clarification when client, amount, or fields are missing or ambiguous.
+  - Restricted tools (`send_approved_invoice`, `approve_action`, `execute_action`) are explicitly blocked if emitted by a model; consequential execution is only possible through the human Approval Slip workflow (`POST /api/actions/:id/approve` and `POST /api/actions/:id/execute`).
+- **Model & Configuration Limitations**:
+  - `GEMINI_API_KEY` is optional in local development (`.env` currently has `GEMINI_API_KEY=` blank unless supplied by the operator). When `GEMINI_API_KEY` is blank, invalid, rate-limited, or times out (`GEMINI_TIMEOUT_MS`, default `15000`ms), `/api/agent/prepare-invoice` returns `status: "AGENT_ERROR"` with `fallbackToConventionalForm: true` and preserves full access to the conventional non-AI invoice form.
+  - Reminder drafting (`Stage 11`) is verified using `POST /api/invoices/:id/reminders/draft` and `repo.generateReminderDraft`.
+  - Grounded aging and cash-flow insights (`Stage 12`) are implemented via the candidate tool `get_financial_insights` and endpoint `GET /api/insights`. Projections are probability-weighted statistical estimates (`isEstimate: true`), currencies are strictly isolated without combining, and clients without payment history are tagged `INSUFFICIENT_HISTORY`.
+  - Verified by `tests/unit/stage12Insights.test.ts` (14/14 passed) and `tests/e2e/stage12-insights.spec.ts` (desktop + 360px mobile).

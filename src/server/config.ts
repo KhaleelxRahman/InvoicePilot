@@ -16,8 +16,12 @@ export interface AppConfig {
   databaseUrl: string;
   paypalMode: PayPalMode;
   authProvider: string;
+  geminiApiKey: string;
+  geminiModel: string;
+  geminiTimeoutMs: number;
   paypalClientId: string;
   paypalClientSecret: string;
+  paypalWebhookId: string;
   paypalInvoicerEmail?: string;
   paypalRecipientEmail: string;
   paypalTimeoutMs: number;
@@ -49,6 +53,10 @@ export function loadAppConfig(
   const timeoutMs = Number.parseInt(merged.PAYPAL_TIMEOUT_MS ?? '15000', 10);
   const safeTimeoutMs = Number.isFinite(timeoutMs) && timeoutMs >= 100 ? timeoutMs : 15000;
 
+  const geminiTimeoutRaw = Number.parseInt(merged.GEMINI_TIMEOUT_MS ?? '15000', 10);
+  const safeGeminiTimeoutMs =
+    Number.isFinite(geminiTimeoutRaw) && geminiTimeoutRaw >= 100 ? geminiTimeoutRaw : 15000;
+
   const defaultDbPath =
     appEnv === 'test' ? 'data/invoicepilot.test.db' : 'data/invoicepilot.db';
   const databaseUrl = (merged.DATABASE_URL ?? '').trim() || defaultDbPath;
@@ -60,8 +68,12 @@ export function loadAppConfig(
     databaseUrl,
     paypalMode: modeResult.data,
     authProvider: (merged.AUTH_PROVIDER ?? 'session').trim() || 'session',
+    geminiApiKey: (merged.GEMINI_API_KEY ?? '').trim(),
+    geminiModel: (merged.GEMINI_MODEL ?? 'gemini-2.5-flash').trim() || 'gemini-2.5-flash',
+    geminiTimeoutMs: safeGeminiTimeoutMs,
     paypalClientId: (merged.PAYPAL_CLIENT_ID ?? '').trim(),
     paypalClientSecret: (merged.PAYPAL_CLIENT_SECRET ?? '').trim(),
+    paypalWebhookId: (merged.PAYPAL_WEBHOOK_ID ?? '').trim(),
     paypalInvoicerEmail: (merged.PAYPAL_SANDBOX_INVOICER_EMAIL ?? '').trim() || undefined,
     paypalRecipientEmail:
       (merged.PAYPAL_SANDBOX_RECIPIENT_EMAIL ?? '').trim() ||

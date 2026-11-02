@@ -52,7 +52,7 @@ describe('Stage 04 — SQLite Persistence, Money Integrity, Ownership & Demo Iso
     // Close first connection and reopen from disk
     db!.close();
     db = openAndMigrateDatabase(dbFile);
-    const repo2 = new InvoicePilotRepository(db);
+    const repo2 = new InvoicePilotRepository(db!);
 
     const loadedClient = repo2.getClientForOwner(alice.id, client.id);
     expect(loadedClient.fullName).toBe('Bob Client');

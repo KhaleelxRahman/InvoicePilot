@@ -48,8 +48,8 @@ test.describe('Stage 01 — Responsive Shell, Design Tokens, and Health Endpoint
     const lightPrimaryToken = await page.evaluate(() =>
       getComputedStyle(document.documentElement).getPropertyValue('--primary').trim()
     );
-    expect(lightDeskToken).toBe('#EEF0F3');
-    expect(lightPrimaryToken).toBe('#0E5A6B');
+    expect(lightDeskToken).toBe('#F5F6F3');
+    expect(lightPrimaryToken).toBe('#285B4A');
 
     await page.getByTestId('theme-btn-dark').click();
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
@@ -59,8 +59,8 @@ test.describe('Stage 01 — Responsive Shell, Design Tokens, and Health Endpoint
     const darkPrimaryToken = await page.evaluate(() =>
       getComputedStyle(document.documentElement).getPropertyValue('--primary').trim()
     );
-    expect(darkDeskToken).toBe('#0F151C');
-    expect(darkPrimaryToken).toBe('#5CC3D0');
+    expect(darkDeskToken).toBe('#151A18');
+    expect(darkPrimaryToken).toBe('#8FBFA6');
 
     // 4. Verify navigation controls work and perform meaningful actions
     await page.getByTestId('nav-tokens').click();
