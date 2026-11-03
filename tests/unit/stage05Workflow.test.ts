@@ -33,16 +33,24 @@ describe('Stage 05 — Clients & Conventional Invoice Draft API Workflow', () =>
     }
   });
 
+  function createAuthedAgent(appInstance: any) {
+    const { rawToken } = repo.createSession(DEMO_TENANT_USER_ID);
+    const agent = request.agent(appInstance);
+    agent.set('Authorization', `Bearer ${rawToken}`);
+    return agent;
+  }
+
   it('creates, lists, reads detail, edits, and deletes an owned client via /api/clients', async () => {
     const app = createApiApp(loadAppConfig({ DATABASE_URL: dbFile }), undefined, repo);
+    const req = createAuthedAgent(app);
 
     // 1. List seeded demo clients
-    const listRes1 = await request(app).get('/api/clients');
+    const listRes1 = await req.get('/api/clients');
     expect(listRes1.status).toBe(200);
     expect(listRes1.body.clients).toHaveLength(2);
 
     // 2. Create a new client
-    const createRes = await request(app).post('/api/clients').send({
+    const createRes = await req.post('/api/clients').send({
       fullName: 'Priya Nair',
       companyName: 'Nair Sostenible Studio',
       email: 'priya@nair-studio.example.com',
@@ -56,13 +64,13 @@ describe('Stage 05 — Clients & Conventional Invoice Draft API Workflow', () =>
     expect(createdClient.defaultCurrency).toBe('USD');
 
     // 3. Get client detail
-    const detailRes = await request(app).get(`/api/clients/${createdClient.id}`);
+    const detailRes = await req.get(`/api/clients/${createdClient.id}`);
     expect(detailRes.status).toBe(200);
     expect(detailRes.body.client.email).toBe('priya@nair-studio.example.com');
     expect(detailRes.body.invoices).toEqual([]);
 
     // 4. Edit client
-    const patchRes = await request(app).patch(`/api/clients/${createdClient.id}`).send({
+    const patchRes = await req.patch(`/api/clients/${createdClient.id}`).send({
       companyName: 'Nair Global Advisory',
       defaultCurrency: 'EUR',
       notes: 'Updated billing notes'
@@ -73,21 +81,22 @@ describe('Stage 05 — Clients & Conventional Invoice Draft API Workflow', () =>
     expect(patchRes.body.client.notes).toBe('Updated billing notes');
 
     // 5. Delete client with zero invoices succeeds
-    const delRes = await request(app).delete(`/api/clients/${createdClient.id}`);
+    const delRes = await req.delete(`/api/clients/${createdClient.id}`);
     expect(delRes.status).toBe(200);
     expect(delRes.body.deleted).toBe(true);
 
     // 6. Deleting a client that has existing invoices is rejected with 400 VALIDATION_ERROR
-    const linkedDeleteRes = await request(app).delete('/api/clients/cli_demo_northstar_01');
+    const linkedDeleteRes = await req.delete('/api/clients/cli_demo_northstar_01');
     expect(linkedDeleteRes.status).toBe(400);
     expect(linkedDeleteRes.body.error.code).toBe('VALIDATION_ERROR');
   });
 
   it('creates, persists, reloads, and edits an invoice draft while recalculating totals server-side and never sending to PayPal', async () => {
     const app = createApiApp(loadAppConfig({ DATABASE_URL: dbFile }), undefined, repo);
+    const req = createAuthedAgent(app);
 
     // Send a draft creation payload that also includes spoofed browser totals; server must ignore them
-    const createRes = await request(app)
+    const createRes = await req
       .post('/api/invoices')
       .send({
         clientId: 'cli_demo_kestrel_02',
@@ -132,13 +141,13 @@ describe('Stage 05 — Clients & Conventional Invoice Draft API Workflow', () =>
     expect(created.items[1].lineTotalMinor).toBe(30000);
 
     // Reload from GET /api/invoices/:id
-    const detailRes = await request(app).get(`/api/invoices/${created.id}`);
+    const detailRes = await req.get(`/api/invoices/${created.id}`);
     expect(detailRes.status).toBe(200);
     expect(detailRes.body.invoice.totalMinor).toBe(161250);
     expect(detailRes.body.client.id).toBe('cli_demo_kestrel_02');
 
     // Edit draft via PATCH /api/invoices/:id and verify server recalculates totals
-    const patchRes = await request(app)
+    const patchRes = await req
       .patch(`/api/invoices/${created.id}`)
       .send({
         taxRatePercent: '10', // 1000 bps
@@ -168,9 +177,10 @@ describe('Stage 05 — Clients & Conventional Invoice Draft API Workflow', () =>
 
   it('rejects invalid amount, currency, calendar dates, date ordering, and line item data', async () => {
     const app = createApiApp(loadAppConfig({ DATABASE_URL: dbFile }), undefined, repo);
+    const req = createAuthedAgent(app);
 
     // 1. Invalid calendar date (Feb 30)
-    const badDateRes = await request(app)
+    const badDateRes = await req
       .post('/api/invoices')
       .send({
         clientId: 'cli_demo_northstar_01',
@@ -185,7 +195,7 @@ describe('Stage 05 — Clients & Conventional Invoice Draft API Workflow', () =>
     expect(badDateRes.body.error.message).toMatch(/valid YYYY-MM-DD calendar dates/);
 
     // 2. Due date before issue date
-    const dueBeforeIssueRes = await request(app)
+    const dueBeforeIssueRes = await req
       .post('/api/invoices')
       .send({
         clientId: 'cli_demo_northstar_01',
@@ -199,7 +209,7 @@ describe('Stage 05 — Clients & Conventional Invoice Draft API Workflow', () =>
     expect(dueBeforeIssueRes.body.error.message).toMatch(/Due date must be on or after/);
 
     // 3. Unsupported currency code
-    const badCurrRes = await request(app)
+    const badCurrRes = await req
       .post('/api/invoices')
       .send({
         clientId: 'cli_demo_northstar_01',
@@ -213,7 +223,7 @@ describe('Stage 05 — Clients & Conventional Invoice Draft API Workflow', () =>
     expect(badCurrRes.body.error.message).toMatch(/Unsupported currency code/);
 
     // 4. Zero or negative price/quantity
-    const zeroPriceRes = await request(app)
+    const zeroPriceRes = await req
       .post('/api/invoices')
       .send({
         clientId: 'cli_demo_northstar_01',
@@ -227,7 +237,7 @@ describe('Stage 05 — Clients & Conventional Invoice Draft API Workflow', () =>
     expect(zeroPriceRes.body.error.message).toMatch(/positive integer/);
 
     // 5. Empty item description
-    const emptyDescRes = await request(app)
+    const emptyDescRes = await req
       .post('/api/invoices')
       .send({
         clientId: 'cli_demo_northstar_01',
@@ -241,7 +251,7 @@ describe('Stage 05 — Clients & Conventional Invoice Draft API Workflow', () =>
     expect(emptyDescRes.body.error.message).toMatch(/description is required/);
 
     // 6. JPY zero-decimal currency with fractional decimals rejected
-    const jpyFracRes = await request(app)
+    const jpyFracRes = await req
       .post('/api/invoices')
       .send({
         clientId: 'cli_demo_northstar_01',
@@ -272,24 +282,26 @@ describe('Stage 05 — Clients & Conventional Invoice Draft API Workflow', () =>
     expect(unauthRes.status).toBe(401);
     expect(unauthRes.body.error.code).toBe('UNAUTHORIZED');
 
+    const { rawToken: ownerBToken } = repo.createSession(ownerB.id);
+
     // Owner B sees 0 clients and 0 invoices in their own list
     const listBClients = await request(app)
       .get('/api/clients')
-      .set('X-Session-User-Id', ownerB.id);
+      .set('Authorization', `Bearer ${ownerBToken}`);
     expect(listBClients.status).toBe(200);
     expect(listBClients.body.clients).toHaveLength(0);
 
     // Owner B cannot view or edit Demo Tenant's client
     const crossClientGet = await request(app)
       .get('/api/clients/cli_demo_northstar_01')
-      .set('X-Session-User-Id', ownerB.id);
+      .set('Authorization', `Bearer ${ownerBToken}`);
     expect(crossClientGet.status).toBe(403);
     expect(crossClientGet.body.error.code).toBe('FORBIDDEN_OWNER_MISMATCH');
 
     // Owner B cannot view or edit Demo Tenant's invoice draft
     const crossInvoicePatch = await request(app)
       .patch('/api/invoices/inv_demo_draft_01')
-      .set('X-Session-User-Id', ownerB.id)
+      .set('Authorization', `Bearer ${ownerBToken}`)
       .send({ notes: 'Tampered notes' });
     expect(crossInvoicePatch.status).toBe(403);
     expect(crossInvoicePatch.body.error.code).toBe('FORBIDDEN_OWNER_MISMATCH');

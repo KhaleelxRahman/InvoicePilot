@@ -1742,13 +1742,18 @@ export function App() {
   useEffect(() => {
     void fetchHealthStatus();
     void checkSession();
-    void loadClients();
-    void loadInvoices();
-    void loadReminders();
-    void loadActivities();
-    void loadInsights();
-    void loadTemplates();
   }, []);
+
+  useEffect(() => {
+    if (sessionToken) {
+      void loadClients();
+      void loadInvoices();
+      void loadReminders();
+      void loadActivities();
+      void loadInsights();
+      void loadTemplates();
+    }
+  }, [sessionToken]);
 
   async function loadActivities() {
     setActivitiesLoading(true);

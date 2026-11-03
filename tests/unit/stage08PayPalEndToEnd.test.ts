@@ -59,18 +59,21 @@ function createTestEnv(customAdapter?: PayPalAdapter, webhookId = 'WH-STAGE08-TE
     databaseUrl: `file:${dbFilePath}`
   };
   const app = createApiApp(config, adapter, repo);
-  return { db, repo, seed, adapter, app };
+  const { rawToken } = repo.createSession(DEMO_TENANT_USER_ID);
+  const req = request.agent(app);
+  req.set('Authorization', `Bearer ${rawToken}`);
+  return { db, repo, seed, adapter, app, req };
 }
 
 describe('Stage 08 — End-to-End PayPal Invoice Send, Status Refresh, Timeout Reconciliation & Webhooks', () => {
   it('requires explicit approval, executes via /api/invoices/:id/paypal/send, persists provider ID/links, and refreshes status to PAID', async () => {
     const mockAdapter = new MockPayPalAdapter();
-    const { app, seed, db } = createTestEnv(mockAdapter);
+    const { app, req, seed, db } = createTestEnv(mockAdapter);
     try {
       const invoiceId = seed.invoiceId;
 
       // 1. Attempting to send before approval is rejected with 400 VALIDATION_ERROR
-      const unapprovedSendRes = await request(app)
+      const unapprovedSendRes = await req
         .post(`/api/invoices/${invoiceId}/paypal/send`)
         .send({});
       expect(unapprovedSendRes.status).toBe(400);
@@ -78,26 +81,26 @@ describe('Stage 08 — End-to-End PayPal Invoice Send, Status Refresh, Timeout R
       expect(unapprovedSendRes.body.error.message).toMatch(/Explicit human approval/i);
 
       // 2. Request approval slip (PENDING_APPROVAL) -> still cannot send before approve
-      const slipRes = await request(app)
+      const slipRes = await req
         .post(`/api/invoices/${invoiceId}/approval-request`)
         .send({ invoiceId });
       expect(slipRes.status).toBe(201);
       const actionId = slipRes.body.action.id as string;
 
-      const pendingSendRes = await request(app)
+      const pendingSendRes = await req
         .post(`/api/invoices/${invoiceId}/paypal/send`)
         .send({ actionId });
       expect(pendingSendRes.status).toBe(400);
       expect(pendingSendRes.body.error.code).toBe('VALIDATION_ERROR');
 
       // 3. Approve slip -> execute via /api/invoices/:id/paypal/send
-      const approveRes = await request(app)
+      const approveRes = await req
         .post(`/api/actions/${actionId}/approve`)
         .send({});
       expect(approveRes.status).toBe(200);
       expect(approveRes.body.action.state).toBe('APPROVED');
 
-      const sendRes = await request(app)
+      const sendRes = await req
         .post(`/api/invoices/${invoiceId}/paypal/send`)
         .send({ actionId });
       expect(sendRes.status).toBe(200);
@@ -111,7 +114,7 @@ describe('Stage 08 — End-to-End PayPal Invoice Send, Status Refresh, Timeout R
       // 4. Simulate buyer payment on provider and call /api/invoices/:id/paypal/refresh
       mockAdapter.setSimulatedStatus('MOCK-LOCAL-0001', 'PAID');
 
-      const refreshRes = await request(app)
+      const refreshRes = await req
         .post(`/api/invoices/${invoiceId}/paypal/refresh`)
         .send({});
       expect(refreshRes.status).toBe(200);
@@ -120,7 +123,7 @@ describe('Stage 08 — End-to-End PayPal Invoice Send, Status Refresh, Timeout R
       expect(refreshRes.body.providerSnapshot.providerStatus).toBe('PAID');
 
       // 5. Verify Activity log records both execution and status refresh
-      const activityRes = await request(app).get('/api/activity');
+      const activityRes = await req.get('/api/activity');
       expect(activityRes.status).toBe(200);
       const actionsLogged = (activityRes.body.activities as Array<{ action: string }>).map(
         (a) => a.action
@@ -133,29 +136,29 @@ describe('Stage 08 — End-to-End PayPal Invoice Send, Status Refresh, Timeout R
   });
 
   it('rejects status refresh on an unsent local draft without providerInvoiceId and blocks duplicate execution', async () => {
-    const { app, seed, db } = createTestEnv();
+    const { app, req, seed, db } = createTestEnv();
     try {
       const invoiceId = seed.invoiceId;
 
       // Cannot refresh status before invoice exists on provider
-      const refreshBeforeSend = await request(app)
+      const refreshBeforeSend = await req
         .post(`/api/invoices/${invoiceId}/paypal/refresh`)
         .send({});
       expect(refreshBeforeSend.status).toBe(400);
       expect(refreshBeforeSend.body.error.code).toBe('VALIDATION_ERROR');
 
       // Prepare, approve, and execute
-      const slipRes = await request(app)
+      const slipRes = await req
         .post(`/api/invoices/${invoiceId}/approval-request`)
         .send({ invoiceId });
       const actionId = slipRes.body.action.id as string;
 
-      await request(app).post(`/api/actions/${actionId}/approve`).send({});
-      const exec1 = await request(app).post(`/api/actions/${actionId}/execute`).send({});
+      await req.post(`/api/actions/${actionId}/approve`).send({});
+      const exec1 = await req.post(`/api/actions/${actionId}/execute`).send({});
       expect(exec1.status).toBe(200);
 
       // Duplicate execution is rejected with 409 DUPLICATE_EVENT
-      const exec2 = await request(app).post(`/api/actions/${actionId}/execute`).send({});
+      const exec2 = await req.post(`/api/actions/${actionId}/execute`).send({});
       expect(exec2.status).toBe(409);
       expect(exec2.body.error.code).toBe('DUPLICATE_EVENT');
     } finally {
@@ -221,15 +224,15 @@ describe('Stage 08 — End-to-End PayPal Invoice Send, Status Refresh, Timeout R
       }
     };
 
-    const { app, seed, db } = createTestEnv(failingAdapter);
+    const { app, req, seed, db } = createTestEnv(failingAdapter);
     try {
-      const slipRes = await request(app)
+      const slipRes = await req
         .post(`/api/invoices/${seed.invoiceId}/approval-request`)
         .send({ invoiceId: seed.invoiceId });
       const actionId = slipRes.body.action.id as string;
-      await request(app).post(`/api/actions/${actionId}/approve`).send({});
+      await req.post(`/api/actions/${actionId}/approve`).send({});
 
-      const execRes = await request(app).post(`/api/actions/${actionId}/execute`).send({});
+      const execRes = await req.post(`/api/actions/${actionId}/execute`).send({});
       expect(execRes.status).toBe(502);
       expect(execRes.body.error.code).toBe('PROVIDER_ERROR');
       expect(execRes.body.action.state).toBe('FAILED');
@@ -324,16 +327,16 @@ describe('Stage 08 — End-to-End PayPal Invoice Send, Status Refresh, Timeout R
       }
     };
 
-    const { app, seed, db } = createTestEnv(timeoutThenReconcileAdapter);
+    const { app, req, seed, db } = createTestEnv(timeoutThenReconcileAdapter);
     try {
       // Attempt 1: send times out while remote status is still DRAFT -> 504 TIMEOUT_RECONCILE_REQUIRED
-      const slip1 = await request(app)
+      const slip1 = await req
         .post(`/api/invoices/${seed.invoiceId}/approval-request`)
         .send({ invoiceId: seed.invoiceId });
       const action1Id = slip1.body.action.id as string;
-      await request(app).post(`/api/actions/${action1Id}/approve`).send({});
+      await req.post(`/api/actions/${action1Id}/approve`).send({});
 
-      const exec1 = await request(app).post(`/api/actions/${action1Id}/execute`).send({});
+      const exec1 = await req.post(`/api/actions/${action1Id}/execute`).send({});
       expect(exec1.status).toBe(504);
       expect(exec1.body.error.code).toBe('TIMEOUT_RECONCILE_REQUIRED');
       expect(exec1.body.error.reconcileRequired).toBe(true);
@@ -343,14 +346,14 @@ describe('Stage 08 — End-to-End PayPal Invoice Send, Status Refresh, Timeout R
 
       // Attempt 2: user requests a fresh approval slip and executes -> reuses existing providerInvoiceId
       // (draftCalls stays 1!) and auto-reconciles the post-send timeout because retrieveInvoice returns SENT!
-      const slip2 = await request(app)
+      const slip2 = await req
         .post(`/api/invoices/${seed.invoiceId}/approval-request`)
         .send({ invoiceId: seed.invoiceId });
       expect(slip2.status).toBe(201);
       const action2Id = slip2.body.action.id as string;
-      await request(app).post(`/api/actions/${action2Id}/approve`).send({});
+      await req.post(`/api/actions/${action2Id}/approve`).send({});
 
-      const exec2 = await request(app).post(`/api/actions/${action2Id}/execute`).send({});
+      const exec2 = await req.post(`/api/actions/${action2Id}/execute`).send({});
       expect(exec2.status).toBe(200);
       expect(exec2.body.action.state).toBe('EXECUTED');
       expect(exec2.body.invoice.localStatus).toBe('SENT');
@@ -359,7 +362,7 @@ describe('Stage 08 — End-to-End PayPal Invoice Send, Status Refresh, Timeout R
       expect(draftCalls).toBe(1); // Never created a duplicate draft!
       expect(sendCalls).toBe(2);
 
-      const activityRes = await request(app).get('/api/activity');
+      const activityRes = await req.get('/api/activity');
       const actionsLogged = (activityRes.body.activities as Array<{ action: string }>).map(
         (a) => a.action
       );
@@ -371,15 +374,15 @@ describe('Stage 08 — End-to-End PayPal Invoice Send, Status Refresh, Timeout R
 
   it('rejects unverified webhooks and idempotently processes signature-verified webhooks once', async () => {
     const mockAdapter = new MockPayPalAdapter();
-    const { app, seed, repo, db } = createTestEnv(mockAdapter, 'WH-STAGE08-VERIFIED');
+    const { app, req, seed, repo, db } = createTestEnv(mockAdapter, 'WH-STAGE08-VERIFIED');
     try {
       // First send the invoice so it has providerInvoiceId = MOCK-LOCAL-0001
-      const slipRes = await request(app)
+      const slipRes = await req
         .post(`/api/invoices/${seed.invoiceId}/approval-request`)
         .send({ invoiceId: seed.invoiceId });
       const actionId = slipRes.body.action.id as string;
-      await request(app).post(`/api/actions/${actionId}/approve`).send({});
-      await request(app).post(`/api/actions/${actionId}/execute`).send({});
+      await req.post(`/api/actions/${actionId}/approve`).send({});
+      await req.post(`/api/actions/${actionId}/execute`).send({});
 
       const webhookPayload = {
         id: 'WH-EVT-STAGE08-0001',

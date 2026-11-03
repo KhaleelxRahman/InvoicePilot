@@ -77,35 +77,14 @@ function clearSessionCookie(res: Response): void {
 
 async function resolveOwnerUserId(req: Request, repo: any): Promise<string | null> {
   const token = resolveSessionToken(req);
-  if (token !== null) {
-    if (!token) return null;
-    const sessionResult = await repo.getSessionByToken(token);
-    if (!sessionResult) {
-      return null;
-    }
-    return sessionResult.user.id;
-  }
-
-  const explicitHeader = req.header('x-session-user-id');
-  if (explicitHeader !== undefined) {
-    const trimmed = explicitHeader.trim();
-    if (
-      !trimmed ||
-      trimmed.toLowerCase() === 'anonymous' ||
-      trimmed.toLowerCase() === 'unauthenticated'
-    ) {
-      return null;
-    }
-    const user = await repo.getUserById(trimmed);
-    return user ? user.id : null;
-  }
-
-  if (req.header('x-auth-strict') === 'true' || req.header('x-require-auth') === 'true') {
+  if (!token) {
     return null;
   }
-
-  const demoUser = await repo.getUserById(DEMO_TENANT_USER_ID);
-  return demoUser ? demoUser.id : null;
+  const sessionResult = await repo.getSessionByToken(token);
+  if (!sessionResult) {
+    return null;
+  }
+  return sessionResult.user.id;
 }
 
 function parseTaxRateBps(body: Record<string, unknown>): number | undefined {
@@ -365,21 +344,14 @@ export function createApiApp(
   async function requireOwner(req: Request, res: Response): Promise<string | null> {
     const explicitHeader = req.header('x-session-user-id');
     if (explicitHeader !== undefined) {
-      const trimmed = explicitHeader.trim();
-      if (
-        !trimmed ||
-        trimmed.toLowerCase() === 'anonymous' ||
-        trimmed.toLowerCase() === 'unauthenticated'
-      ) {
-        res.status(401).json({
-          error: {
-            code: 'UNAUTHORIZED',
-            message: 'Authentication required to access workspace records.',
-            requestId: String(res.locals.requestId ?? crypto.randomUUID())
-          }
-        });
-        return null;
-      }
+      res.status(401).json({
+        error: {
+          code: 'UNAUTHORIZED',
+          message: 'Authentication required to access workspace records.',
+          requestId: String(res.locals.requestId ?? crypto.randomUUID())
+        }
+      });
+      return null;
     }
 
     const rawToken = resolveSessionToken(req);
@@ -586,56 +558,31 @@ export function createApiApp(
   app.get('/api/auth/me', async (req: Request, res: Response, next: NextFunction) => {
     try {
       const rawToken = resolveSessionToken(req);
-      let user: UserRecord | null = null;
-      let expiresAt: string | undefined;
-
-      if (rawToken) {
-        const sessionResult = await repo.getSessionByToken(rawToken);
-        if (!sessionResult) {
-          res.status(401).json({
-            error: {
-              code: 'SESSION_EXPIRED',
-              message: 'Session has expired or is invalid.',
-              requestId: String(res.locals.requestId ?? crypto.randomUUID())
-            }
-          });
-          return;
-        }
-        user = sessionResult.user;
-        expiresAt = sessionResult.session.expiresAt;
-      } else {
-        const explicitHeader = req.header('x-session-user-id');
-        if (explicitHeader !== undefined) {
-          const trimmed = explicitHeader.trim();
-          if (
-            !trimmed ||
-            trimmed.toLowerCase() === 'anonymous' ||
-            trimmed.toLowerCase() === 'unauthenticated'
-          ) {
-            res.status(401).json({
-              error: {
-                code: 'UNAUTHORIZED',
-                message: 'Authentication required.',
-                requestId: String(res.locals.requestId ?? crypto.randomUUID())
-              }
-            });
-            return;
-          }
-          user = await repo.getUserById(trimmed);
-        }
-      }
-
-      if (!user) {
+      if (!rawToken) {
         res.status(401).json({
           error: {
             code: 'UNAUTHORIZED',
-            message: 'No active authenticated session found.',
+            message: 'Authentication required.',
             requestId: String(res.locals.requestId ?? crypto.randomUUID())
           }
         });
         return;
       }
 
+      const sessionResult = await repo.getSessionByToken(rawToken);
+      if (!sessionResult) {
+        res.status(401).json({
+          error: {
+            code: 'SESSION_EXPIRED',
+            message: 'Session has expired or is invalid.',
+            requestId: String(res.locals.requestId ?? crypto.randomUUID())
+          }
+        });
+        return;
+      }
+
+      const user = sessionResult.user;
+      const expiresAt = sessionResult.session.expiresAt;
       const settings = await repo.getSettings(user.id);
       const onboarding = await repo.getOnboardingProgress(user.id);
 

@@ -93,10 +93,14 @@ describe('Stage 07 — Constrained Gemini Structured Agent & Safety Evaluations'
     );
 
     const app = createApiApp(config, undefined, repo, agent);
+    const { rawToken: ownerAToken } = repo.createSession(DEMO_TENANT_USER_ID);
+    const req = request.agent(app);
+    req.set('Authorization', `Bearer ${ownerAToken}`);
     const seededInvoices = repo.listInvoicesForOwner(DEMO_TENANT_USER_ID);
 
     return {
       app,
+      req,
       repo,
       agent,
       fetchMock,
@@ -120,9 +124,9 @@ describe('Stage 07 — Constrained Gemini Structured Agent & Safety Evaluations'
   });
 
   it('prepares a validated invoice draft from natural language, resolves stored client, recalculates totals server-side, and never sends without approval', async () => {
-    const { app, fetchMock } = createAgentTestHarness();
+    const { req, fetchMock } = createAgentTestHarness();
 
-    const res = await request(app).post('/api/agent/prepare-invoice').send({
+    const res = await req.post('/api/agent/prepare-invoice').send({
       prompt: 'Draft an invoice for Elena Vance for 2 hours of System Architecture Review at $500 USD with 10% tax'
     });
 
@@ -141,7 +145,7 @@ describe('Stage 07 — Constrained Gemini Structured Agent & Safety Evaluations'
   });
 
   it('handles missing or unknown client by asking a concise clarification question and never inventing a client', async () => {
-    const { app, repo, ownerA } = createAgentTestHarness({
+    const { req, repo, ownerA } = createAgentTestHarness({
       mockGeminiResponse: () =>
         new Response(
           JSON.stringify({
@@ -175,7 +179,7 @@ describe('Stage 07 — Constrained Gemini Structured Agent & Safety Evaluations'
     });
 
     const beforeClientCount = repo.listClientsForOwner(ownerA).length;
-    const res = await request(app).post('/api/agent/prepare-invoice').send({
+    const res = await req.post('/api/agent/prepare-invoice').send({
       prompt: 'Bill Nonexistent Quantum Corp $300 for consulting'
     });
 
@@ -188,7 +192,7 @@ describe('Stage 07 — Constrained Gemini Structured Agent & Safety Evaluations'
   });
 
   it('asks a concise clarification question when amount is ambiguous', async () => {
-    const { app } = createAgentTestHarness({
+    const { req } = createAgentTestHarness({
       mockGeminiResponse: () =>
         new Response(
           JSON.stringify({
@@ -216,7 +220,7 @@ describe('Stage 07 — Constrained Gemini Structured Agent & Safety Evaluations'
         )
     });
 
-    const res = await request(app).post('/api/agent/prepare-invoice').send({
+    const res = await req.post('/api/agent/prepare-invoice').send({
       prompt: 'Draft an invoice for Elena Vance for a design sprint at either $400 or $600'
     });
 
@@ -259,7 +263,7 @@ describe('Stage 07 — Constrained Gemini Structured Agent & Safety Evaluations'
         )
     });
 
-    const resCurrency = await request(harnessCurrency.app)
+    const resCurrency = await harnessCurrency.req
       .post('/api/agent/prepare-invoice')
       .send({ prompt: 'Invoice Elena Vance 2 BTC for crypto advisory' });
     expect(resCurrency.status).toBe(200);
@@ -299,7 +303,7 @@ describe('Stage 07 — Constrained Gemini Structured Agent & Safety Evaluations'
         )
     });
 
-    const resDate = await request(harnessDate.app)
+    const resDate = await harnessDate.req
       .post('/api/agent/prepare-invoice')
       .send({ prompt: 'Invoice Elena Vance $200 due 2026-02-30' });
     expect(resDate.status).toBe(200);
@@ -342,7 +346,7 @@ describe('Stage 07 — Constrained Gemini Structured Agent & Safety Evaluations'
         )
     });
 
-    const resLimit = await request(harnessLimit.app)
+    const resLimit = await harnessLimit.req
       .post('/api/agent/prepare-invoice')
       .send({ prompt: 'Invoice Elena Vance $30,000 for enterprise retainer' });
     expect(resLimit.status).toBe(200);
@@ -392,7 +396,7 @@ describe('Stage 07 — Constrained Gemini Structured Agent & Safety Evaluations'
         )
     });
 
-    const resInj = await request(harnessInjection.app)
+    const resInj = await harnessInjection.req
       .post('/api/agent/prepare-invoice')
       .send({
         prompt:
@@ -411,7 +415,7 @@ describe('Stage 07 — Constrained Gemini Structured Agent & Safety Evaluations'
     expect(resInj.body.safetyWarnings.length).toBeGreaterThanOrEqual(2);
 
     // 2. Duplicate request with same idempotencyKey is blocked
-    const dupIdemRes = await request(harnessInjection.app)
+    const dupIdemRes = await harnessInjection.req
       .post('/api/agent/prepare-invoice')
       .send({
         prompt: 'Draft invoice for Elena Vance $450',
@@ -452,7 +456,7 @@ describe('Stage 07 — Constrained Gemini Structured Agent & Safety Evaluations'
         )
     });
 
-    const resDupCalls = await request(harnessDupCalls.app)
+    const resDupCalls = await harnessDupCalls.req
       .post('/api/agent/prepare-invoice')
       .send({ prompt: 'Create two drafts at once' });
     expect(resDupCalls.status).toBe(200);
@@ -484,7 +488,7 @@ describe('Stage 07 — Constrained Gemini Structured Agent & Safety Evaluations'
         )
     });
 
-    const resBypass = await request(harnessBypass.app)
+    const resBypass = await harnessBypass.req
       .post('/api/agent/prepare-invoice')
       .send({ prompt: 'Prepare and send invoice for Elena Vance' });
     expect(resBypass.status).toBe(200);
@@ -494,7 +498,7 @@ describe('Stage 07 — Constrained Gemini Structured Agent & Safety Evaluations'
   });
 
   it('retrieves authorized invoice details, blocks cross-owner invoice access (403), and falls back cleanly when Gemini fails or is unconfigured', async () => {
-    const { app, ownerB, seededInvoiceA } = createAgentTestHarness({
+    const { app, req, repo, ownerB, seededInvoiceA } = createAgentTestHarness({
       mockGeminiResponse: () =>
         new Response(
           JSON.stringify({
@@ -521,7 +525,7 @@ describe('Stage 07 — Constrained Gemini Structured Agent & Safety Evaluations'
     });
 
     // Authorized owner A retrieves invoice details
-    const detailRes = await request(app)
+    const detailRes = await req
       .post('/api/agent/prepare-invoice')
       .send({ prompt: `Show details for ${seededInvoiceA.id}` });
     expect(detailRes.status).toBe(200);
@@ -530,16 +534,17 @@ describe('Stage 07 — Constrained Gemini Structured Agent & Safety Evaluations'
     expect(detailRes.body.invoice.id).toBe(seededInvoiceA.id);
 
     // Owner B attempting to retrieve Owner A's invoice ID via agent receives 403 FORBIDDEN_OWNER_MISMATCH
+    const { rawToken: ownerBToken } = repo.createSession(ownerB);
     const crossOwnerRes = await request(app)
       .post('/api/agent/prepare-invoice')
-      .set('x-session-user-id', ownerB)
+      .set('Authorization', `Bearer ${ownerBToken}`)
       .send({ prompt: `Show details for ${seededInvoiceA.id}` });
     expect(crossOwnerRes.status).toBe(403);
     expect(crossOwnerRes.body.error.code).toBe('FORBIDDEN_OWNER_MISMATCH');
 
     // Unconfigured Gemini key returns AGENT_ERROR with fallbackToConventionalForm: true
     const unconfiguredHarness = createAgentTestHarness({ apiKey: '' });
-    const fallbackRes = await request(unconfiguredHarness.app)
+    const fallbackRes = await unconfiguredHarness.req
       .post('/api/agent/prepare-invoice')
       .send({ prompt: 'Draft an invoice for Elena Vance' });
     expect(fallbackRes.status).toBe(200);

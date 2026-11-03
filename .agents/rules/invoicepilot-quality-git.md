@@ -49,3 +49,4 @@ For each implementation request, report:
 - Exact staged files and Git status
 - Confirmation that unrelated and pre-existing changes were preserved
 - Do not call work “perfect” or “complete” when tests fail, verification was skipped, or material blockers remain.
+
