@@ -10,6 +10,7 @@ import { InvoiceDraftForm } from './components/InvoiceDraftForm';
 import { InvoiceDetailView } from './components/InvoiceDetailView';
 import { ClientDetailView } from './components/ClientDetailView';
 import { ReminderModal } from './components/ReminderModal';
+import { StartPage } from './components/StartPage';
 
 export * from './types';
 
@@ -944,22 +945,8 @@ export function App() {
   async function checkSession() {
     try {
       if (!sessionToken) {
-        // Unauthenticated initial load: initialize demo session directly without 401
-        const demoRes = await fetch('/api/auth/demo', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Accept: 'application/json' }
-        });
-        if (demoRes.ok) {
-          const demoData = await demoRes.json();
-          setCurrentUser(demoData.user);
-          setOnboarding(demoData.onboarding);
-          setSessionToken(demoData.sessionToken);
-          try {
-            window.localStorage.setItem('invoicepilot-session-token', demoData.sessionToken);
-          } catch {
-            // Ignore
-          }
-        }
+        // Do not automatically sign in as demo when user opens the app
+        setCurrentUser(null);
         return;
       }
 
@@ -976,38 +963,27 @@ export function App() {
           if (data.onboarding.maxInvoiceAmountMinor) setOnbMaxAmountMinor(data.onboarding.maxInvoiceAmountMinor);
           if (data.onboarding.defaultReminderTone) setOnbReminderTone(data.onboarding.defaultReminderTone);
         }
+        await loadClients();
+        await loadInvoices();
+        await loadActivities();
+        await loadNotifications();
         return;
       }
 
-      // If stored session token is expired or invalid, reset to demo cleanly
+      // If stored session token is expired or invalid, clear it without falling back to demo
       try {
         window.localStorage.removeItem('invoicepilot-session-token');
       } catch {
         // Ignore
       }
       setSessionToken(null);
-      const fallbackDemoRes = await fetch('/api/auth/demo', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' }
-      });
-      if (fallbackDemoRes.ok) {
-        const demoData = await fallbackDemoRes.json();
-        setCurrentUser(demoData.user);
-        setOnboarding(demoData.onboarding);
-        setSessionToken(demoData.sessionToken);
-        try {
-          window.localStorage.setItem('invoicepilot-session-token', demoData.sessionToken);
-        } catch {
-          // Ignore
-        }
-      }
+      setCurrentUser(null);
     } catch {
       // Ignore network errors on init
     }
   }
 
-  async function handleLogin(e: React.FormEvent) {
-    e.preventDefault();
+  async function performLogin(email: string, pass: string) {
     setAuthLoading(true);
     setAuthError(null);
     setAuthFeedback(null);
@@ -1015,7 +991,7 @@ export function App() {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ email: authEmail, password: authPassword })
+        body: JSON.stringify({ email, password: pass })
       });
       const data = await res.json();
       if (!res.ok || !data.user) {
@@ -1034,6 +1010,7 @@ export function App() {
       await loadClients();
       await loadInvoices();
       await loadActivities();
+      await loadNotifications();
     } catch (err) {
       setAuthError(err instanceof Error ? err.message : 'Login failed.');
     } finally {
@@ -1041,8 +1018,7 @@ export function App() {
     }
   }
 
-  async function handleRegister(e: React.FormEvent) {
-    e.preventDefault();
+  async function performRegister(email: string, pass: string, displayName: string) {
     setAuthLoading(true);
     setAuthError(null);
     setAuthFeedback(null);
@@ -1051,9 +1027,9 @@ export function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({
-          email: authEmail,
-          password: authPassword,
-          displayName: authDisplayName
+          email,
+          password: pass,
+          displayName
         })
       });
       const data = await res.json();
@@ -1074,6 +1050,7 @@ export function App() {
       await loadClients();
       await loadInvoices();
       await loadActivities();
+      await loadNotifications();
     } catch (err) {
       setAuthError(err instanceof Error ? err.message : 'Registration failed.');
     } finally {
@@ -1081,29 +1058,46 @@ export function App() {
     }
   }
 
+  async function handleLogin(e: React.FormEvent) {
+    e.preventDefault();
+    await performLogin(authEmail, authPassword);
+  }
+
+  async function handleRegister(e: React.FormEvent) {
+    e.preventDefault();
+    await performRegister(authEmail, authPassword, authDisplayName);
+  }
+
   async function handleDemoLogin() {
     setAuthLoading(true);
+    setAuthError(null);
+    setAuthFeedback(null);
     try {
       const res = await fetch('/api/auth/demo', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' }
       });
-      if (res.ok) {
-        const data = await res.json();
-        setCurrentUser(data.user);
-        setSessionToken(data.sessionToken);
-        setOnboarding(data.onboarding);
-        try {
-          window.localStorage.setItem(
-            'invoicepilot-session-token',
-            data.sessionToken
-          );
-        } catch {}
-        setAuthModalOpen(false);
-        await loadClients();
-        await loadInvoices();
-        await loadActivities();
+      if (!res.ok) {
+        throw new Error('Could not initialize demo session.');
       }
+      const data = await res.json();
+      setCurrentUser(data.user);
+      setSessionToken(data.sessionToken);
+      setOnboarding(data.onboarding);
+      try {
+        window.localStorage.setItem(
+          'invoicepilot-session-token',
+          data.sessionToken
+        );
+      } catch {}
+      setAuthModalOpen(false);
+      setAuthFeedback('Entered demo workspace.');
+      await loadClients();
+      await loadInvoices();
+      await loadActivities();
+      await loadNotifications();
+    } catch (err) {
+      setAuthError(err instanceof Error ? err.message : 'Demo access failed.');
     } finally {
       setAuthLoading(false);
     }
@@ -1116,6 +1110,9 @@ export function App() {
         method: 'POST',
         headers: getAuthHeaders()
       });
+    } catch {
+      // Ignore
+    } finally {
       try {
         window.localStorage.removeItem('invoicepilot-session-token');
       } catch {
@@ -1123,28 +1120,10 @@ export function App() {
       }
       setSessionToken(null);
       setCurrentUser(null);
-      // Immediately restore demo session without an unauthenticated 401 request
-      const demoRes = await fetch('/api/auth/demo', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' }
-      });
-      if (demoRes.ok) {
-        const demoData = await demoRes.json();
-        setCurrentUser(demoData.user);
-        setOnboarding(demoData.onboarding);
-        setSessionToken(demoData.sessionToken);
-        try {
-          window.localStorage.setItem('invoicepilot-session-token', demoData.sessionToken);
-        } catch {
-          // Ignore
-        }
-      }
-      await loadClients();
-      await loadInvoices();
-      await loadActivities();
-    } catch {
-      // Ignore
-    } finally {
+      setClients([]);
+      setInvoices([]);
+      setActivities([]);
+      setNotifications([]);
       setAuthLoading(false);
     }
   }
@@ -1159,6 +1138,9 @@ export function App() {
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data.error?.message ?? 'Failed to reset demo tenant.');
+      }
+      if (data.token) {
+        localStorage.setItem(SESSION_STORAGE_KEY, data.token);
       }
       setAuthFeedback(data.message ?? 'Demo tenant reset successfully.');
       await checkSession();
@@ -2340,6 +2322,26 @@ export function App() {
 
   const currentMode = health?.paypalMode ?? 'sandbox';
   const previewClient = clients.find((c) => c.id === draftClientId) ?? null;
+
+  if (!currentUser) {
+    return (
+      <StartPage
+        currentMode={currentMode}
+        themePref={themePref}
+        setThemePref={setThemePref}
+        onLogin={performLogin}
+        onRegister={performRegister}
+        onDemoLogin={handleDemoLogin}
+        authLoading={authLoading}
+        authError={authError}
+        setAuthError={setAuthError}
+        authFeedback={authFeedback}
+        setAuthFeedback={setAuthFeedback}
+        health={health}
+        healthLoading={healthLoading}
+      />
+    );
+  }
 
   return (
     <div className="app-shell">
@@ -4550,7 +4552,7 @@ export function App() {
                     Notifications
                   </h2>
                   <p className="sheet-lead">
-                    Real-time operational alerts for invoice views, payments, approval requests, and sandbox integration updates.
+                    In-app operational alerts for invoice drafting, approval slips, payment settlements, and PayPal Sandbox integration events (distinct from external client emails).
                   </p>
                 </div>
                 <div className="btn-row">
@@ -4606,38 +4608,58 @@ export function App() {
                 <div data-testid="notifications-list">
                   {notifications
                     .filter((n) => (notifFilter === 'unread' ? !n.isRead : true))
-                    .map((n) => (
-                      <div
-                        key={n.id}
-                        className="notification-card"
-                        data-unread={!n.isRead}
-                        data-testid={`notification-card-${n.id}`}
-                      >
-                        <div>
-                          <h4 className="notification-card-title">{n.title}</h4>
-                          <p className="notification-card-body">{n.body}</p>
-                          <span
-                            className="tabular-nums"
-                            style={{ fontSize: '0.78rem', color: 'var(--ink-muted)', marginTop: '0.25rem', display: 'inline-block' }}
-                          >
-                            {n.createdAt}
-                          </span>
-                        </div>
-                        <div>
-                          {!n.isRead && (
-                            <button
-                              type="button"
-                              className="secondary-btn"
-                              data-testid={`mark-read-btn-${n.id}`}
-                              onClick={() => void handleMarkNotificationRead(n.id)}
-                              style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem' }}
+                    .map((n) => {
+                      const matchedInvoice = invoices.find(
+                        (inv) =>
+                          n.body.includes(inv.invoiceNumber) || n.title.includes(inv.invoiceNumber)
+                      );
+                      return (
+                        <div
+                          key={n.id}
+                          className="notification-card"
+                          data-unread={!n.isRead}
+                          data-testid={`notification-card-${n.id}`}
+                        >
+                          <div>
+                            <h4 className="notification-card-title">{n.title}</h4>
+                            <p className="notification-card-body">{n.body}</p>
+                            <span
+                              className="tabular-nums"
+                              style={{ fontSize: '0.78rem', color: 'var(--ink-muted)', marginTop: '0.25rem', display: 'inline-block' }}
                             >
-                              Mark read
-                            </button>
-                          )}
+                              {n.createdAt}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                            {matchedInvoice && (
+                              <button
+                                type="button"
+                                className="action-btn"
+                                style={{ fontSize: '0.8rem', padding: '0.25rem 0.6rem' }}
+                                onClick={() => {
+                                  if (!n.isRead) void handleMarkNotificationRead(n.id);
+                                  setSelectedInvoice(matchedInvoice);
+                                  setActiveSection('invoices');
+                                }}
+                              >
+                                View invoice →
+                              </button>
+                            )}
+                            {!n.isRead && (
+                              <button
+                                type="button"
+                                className="secondary-btn"
+                                data-testid={`mark-read-btn-${n.id}`}
+                                onClick={() => void handleMarkNotificationRead(n.id)}
+                                style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem' }}
+                              >
+                                Mark read
+                              </button>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   {notifications.filter((n) => (notifFilter === 'unread' ? !n.isRead : true)).length === 0 && (
                     <div className="empty-state-box">
                       {notifFilter === 'unread'

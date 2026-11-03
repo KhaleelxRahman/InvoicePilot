@@ -614,10 +614,14 @@ export function createApiApp(
   app.post('/api/demo/reset', async (req: Request, res: Response, next: NextFunction) => {
     try {
       const result = await repo.resetAndSeedDemoTenant();
+      const { session, rawToken } = await repo.createSession(result.demoUser.id);
+      setSessionCookie(res, rawToken, config);
+
       res.status(200).json({
         ok: true,
         message: 'Demo tenant reset successfully. Real user accounts were preserved.',
         demoUser: result.demoUser,
+        token: rawToken,
         clientsCount: result.clients.length,
         invoicesCount: result.invoices.length
       });
@@ -1348,6 +1352,13 @@ export function createApiApp(
       });
 
       const invoice = await repo.getInvoiceForOwner(ownerId, invoiceId);
+      if (typeof repo.createNotification === 'function') {
+        const totalStr = formatMinorUnitsToDecimal(invoice.totalMinor, invoice.currencyCode);
+        await repo.createNotification(ownerId, {
+          title: 'Approval slip ready',
+          body: `Approval slip prepared for invoice ${invoice.invoiceNumber} (${totalStr} ${invoice.currencyCode}). Review and approve before dispatch.`
+        });
+      }
       res.status(201).json({ action, slip, invoice });
     } catch (err) {
       next(err);
@@ -1681,6 +1692,15 @@ export function createApiApp(
       },
       requestId
     );
+
+    if (typeof repo.createNotification === 'function') {
+      const modeLabel = adapter.mode === 'sandbox' ? 'PayPal Sandbox' : 'PayPal Mock';
+      const totalStr = formatMinorUnitsToDecimal(completed.invoice.totalMinor, completed.invoice.currencyCode);
+      await repo.createNotification(ownerId, {
+        title: `Invoice sent via ${modeLabel}`,
+        body: `Invoice ${completed.invoice.invoiceNumber} (${totalStr} ${completed.invoice.currencyCode}) was dispatched to ${client.email}.`
+      });
+    }
 
     res.status(200).json({
       action: completed.action,

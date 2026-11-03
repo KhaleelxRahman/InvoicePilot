@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { navigateToSection } from './testHelpers';
+import { navigateToSection, ensureWorkspaceLoaded } from './testHelpers';
 
 test.describe('Stage 09 — Authentication, Demo Isolation, and Onboarding E2E', () => {
   test('registers new user, navigates 4-step onboarding wizard to completion, and tests demo isolation/reset', async ({
@@ -22,6 +22,7 @@ test.describe('Stage 09 — Authentication, Demo Isolation, and Onboarding E2E',
     const testPassword = 'StrongPassword2026!';
 
     await page.goto('/');
+    await ensureWorkspaceLoaded(page);
 
     // 1. Check initial shell state (defaults to Demo user)
     const userBadge = page.getByTestId('current-user-badge');
@@ -84,7 +85,12 @@ test.describe('Stage 09 — Authentication, Demo Isolation, and Onboarding E2E',
 
     // 10. Test Log out and Demo Reset
     await page.getByTestId('logout-btn').click();
-    // After logging out, system restores demo session
+    // After logging out, system returns to start page (does not auto re-sign into demo)
+    await expect(page.getByTestId('auth-card')).toBeVisible();
+    await expect(page.getByTestId('current-user-badge')).toBeHidden();
+
+    // Enter demo workspace from start page
+    await page.getByTestId('enter-demo-btn').click();
     await expect(page.getByTestId('current-user-badge')).toContainText('Demo');
     await expect(page.getByTestId('reset-demo-btn')).toBeVisible();
 

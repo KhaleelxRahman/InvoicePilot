@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import type { ISqlDatabase } from './types.js';
-import { getCurrencyExponent } from './schema.js';
+import { getCurrencyExponent, formatMinorUnitsToDecimal } from './schema.js';
 import type { PayPalMode } from '../config.js';
 import type { ProviderConfirmedStatus } from '../paypal/adapter.js';
 import {
@@ -3334,6 +3334,18 @@ export class InvoicePilotRepository {
         currencyCode: existing.currencyCode
       }
     });
+
+    if (isFullyPaid) {
+      this.createNotification(ownerUserId, {
+        title: 'Invoice paid in full',
+        body: `Invoice ${existing.invoiceNumber} has been fully settled (${formatMinorUnitsToDecimal(existing.totalMinor, existing.currencyCode)} ${existing.currencyCode}).`
+      });
+    } else {
+      this.createNotification(ownerUserId, {
+        title: 'Payment recorded',
+        body: `Payment of ${formatMinorUnitsToDecimal(amountMinor, existing.currencyCode)} ${existing.currencyCode} recorded for ${existing.invoiceNumber}. Remaining balance: ${formatMinorUnitsToDecimal(existing.totalMinor - nextPaid, existing.currencyCode)} ${existing.currencyCode}.`
+      });
+    }
 
     return this.getInvoiceForOwner(ownerUserId, invoiceId);
   }

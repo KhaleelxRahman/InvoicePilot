@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { ensureWorkspaceLoaded } from './testHelpers';
 
 test.describe('Stage 01 — Responsive Shell, Design Tokens, and Health Endpoint', () => {
   test('renders responsive shell, verifies /api/health, switches themes, and navigates without console errors', async ({
@@ -63,6 +64,7 @@ test.describe('Stage 01 — Responsive Shell, Design Tokens, and Health Endpoint
     expect(darkPrimaryToken).toBe('#8FBFA6');
 
     // 4. Verify navigation controls work and perform meaningful actions
+    await ensureWorkspaceLoaded(page);
     await page.getByTestId('nav-tokens').click();
     await expect(
       page.getByRole('heading', { name: 'Paper ledger & approval slip design tokens' })

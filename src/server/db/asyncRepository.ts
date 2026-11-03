@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import type { IAsyncSqlDatabase } from './types.js';
-import { getCurrencyExponent } from './schema.js';
+import { getCurrencyExponent, formatMinorUnitsToDecimal } from './schema.js';
 import type { PayPalMode } from '../config.js';
 import type { ProviderConfirmedStatus } from '../paypal/adapter.js';
 import {
@@ -1125,6 +1125,18 @@ export class AsyncInvoicePilotRepository {
         invoiceId,
         ownerUserId
       );
+
+    if (isFullyPaid) {
+      await this.createNotification(ownerUserId, {
+        title: 'Invoice paid in full',
+        body: `Invoice ${invoice.invoiceNumber} has been fully settled (${formatMinorUnitsToDecimal(invoice.totalMinor, invoice.currencyCode)} ${invoice.currencyCode}).`
+      });
+    } else {
+      await this.createNotification(ownerUserId, {
+        title: 'Payment recorded',
+        body: `Payment of ${formatMinorUnitsToDecimal(amountMinor, invoice.currencyCode)} ${invoice.currencyCode} recorded for ${invoice.invoiceNumber}. Remaining balance: ${formatMinorUnitsToDecimal(invoice.totalMinor - newPaid, invoice.currencyCode)} ${invoice.currencyCode}.`
+      });
+    }
 
     return await this.getInvoiceForOwner(ownerUserId, invoiceId);
   }

@@ -7,8 +7,8 @@ InvoicePilot combines grounded Gemini structured invoice preparation, an authori
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js 22 LTS](https://img.shields.io/badge/Node.js-22%20LTS-green.svg)](https://nodejs.org/)
 [![TypeScript 5.7](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
-[![Playwright Tests](https://img.shields.io/badge/Playwright-24%2F24%20Passed-brightgreen.svg)](tests/e2e)
-[![Vitest Unit Tests](https://img.shields.io/badge/Vitest-91%2F91%20Passed-brightgreen.svg)](tests/unit)
+[![Playwright Tests](https://img.shields.io/badge/Playwright-30%2F30%20Passed-brightgreen.svg)](tests/e2e)
+[![Vitest Unit Tests](https://img.shields.io/badge/Vitest-116%2F116%20Passed-brightgreen.svg)](tests/unit)
 
 ---
 
@@ -111,8 +111,8 @@ npm start
 | `npm run build` | Builds client assets via Vite and compiles server TypeScript into `dist/` |
 | `npm start` | Runs compiled production Express server from `dist/server/index.js` |
 | `npm run typecheck` | Type-checks entire codebase (`tsc --noEmit`) |
-| `npm test` | Runs all 91 unit and contract tests via Vitest |
-| `npm run test:e2e` | Runs all 24 Playwright end-to-end user journeys (desktop + 360px mobile) |
+| `npm test` | Runs all 116 unit and contract tests via Vitest |
+| `npm run test:e2e` | Runs all 30 Playwright end-to-end user journeys (desktop + 360px mobile) |
 | `npm run paypal:sandbox:verify` | Standalone CLI proof verifying live PayPal Sandbox Invoicing v2 API |
 | `npm run paypal:adapter:verify` | Verifies PayPal adapter draft/send/retrieve in current mode |
 | `npm run db:migrate` | Applies pending SQLite schema migrations |
@@ -125,7 +125,7 @@ npm start
 
 For evaluators reviewing the submission:
 - **Demo Arc & Walkthrough**: Consult [`docs/HACKATHON_SUBMISSION.md`](docs/HACKATHON_SUBMISSION.md) for the structured 3-minute demo script.
-- **Feature Verification Ledger**: Inspect [`docs/FEATURE_STATUS.md`](docs/FEATURE_STATUS.md) for reproducible test evidence for every feature.
+- **Feature Verification Ledger**: Inspect [`docs/FEATURE_STATUS.md`](docs/FEATURE_STATUS.md) for reproducible test evidence for every feature (30/30 Playwright journeys and 116/116 Vitest unit tests passed).
 - **PayPal Integration Evidence**: Inspect [`docs/PAYPAL_INTEGRATION.md`](docs/PAYPAL_INTEGRATION.md) for Sandbox API response logs and webhook verification results.
 - **Architecture & Security**: Consult [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/AUTH_SECURITY.md`](docs/AUTH_SECURITY.md).
 - **Decision Records**: See [`docs/DECISIONS_LOG.md`](docs/DECISIONS_LOG.md) for architecture decisions (including D-005 on Direct REST v2 vs. MCP).

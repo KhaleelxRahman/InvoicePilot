@@ -1,10 +1,12 @@
 import { expect, test } from '@playwright/test';
+import { ensureWorkspaceLoaded } from './testHelpers';
 
 test.describe('Phase 2 — Frontend Product Polish & UX Verification', () => {
   test('verifies mobile navigation drawer, backdrop, and responsive controls', async ({ page }) => {
     // Set mobile viewport
     await page.setViewportSize({ width: 375, height: 667 });
     await page.goto('/');
+    await ensureWorkspaceLoaded(page);
 
     const menuToggle = page.getByTestId('mobile-menu-toggle');
     await expect(menuToggle).toBeVisible();
@@ -45,6 +47,7 @@ test.describe('Phase 2 — Frontend Product Polish & UX Verification', () => {
   test('verifies interactive global search, keyboard shortcuts, and dropdown navigation', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto('/');
+    await ensureWorkspaceLoaded(page);
 
     const searchInput = page.getByTestId('header-search-input');
     await expect(searchInput).toBeVisible();
@@ -87,6 +90,7 @@ test.describe('Phase 2 — Frontend Product Polish & UX Verification', () => {
   test('verifies polished business copy, no double-plus glitches, and clean hierarchy', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto('/');
+    await ensureWorkspaceLoaded(page);
 
     // 1. Verify Header Create Invoice button text has no double-plus
     const createBtn = page.getByTestId('header-create-invoice-btn');

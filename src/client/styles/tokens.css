@@ -1417,3 +1417,179 @@ body {
     transform: translateY(0);
   }
 }
+
+/* =============================================================================
+   Start Page / Professional Sign-In Styles
+   ============================================================================= */
+.start-page-wrapper {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--desk);
+  color: var(--ink);
+}
+
+.start-page-header {
+  border-bottom: 1px solid var(--rule);
+  background-color: var(--sheet);
+  padding: 0.75rem 1.25rem;
+}
+
+.start-page-header-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.start-page-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2.5rem 1.25rem;
+}
+
+.start-page-content {
+  max-width: 1100px;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 3rem;
+  align-items: center;
+}
+
+.start-page-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.start-page-headline {
+  font-family: var(--font-serif);
+  font-size: clamp(1.75rem, 3.2vw, 2.45rem);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  margin: 0;
+}
+
+.start-page-lead {
+  font-size: 1rem;
+  line-height: 1.55;
+  color: var(--ink-muted);
+  margin: 0;
+}
+
+.start-page-features-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin-top: 0.5rem;
+}
+
+.feature-mini-card {
+  display: flex;
+  gap: 0.85rem;
+  align-items: flex-start;
+  padding: 0.85rem 1rem;
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  transition: border-color 0.15s ease-in-out;
+}
+
+.feature-mini-card:hover {
+  border-color: var(--primary);
+}
+
+.feature-mini-icon {
+  font-size: 1.25rem;
+  line-height: 1;
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+
+.feature-mini-card strong {
+  display: block;
+  font-size: 0.88rem;
+  color: var(--ink);
+  margin-bottom: 0.15rem;
+}
+
+.feature-mini-card p {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--ink-muted);
+  line-height: 1.35;
+}
+
+.start-auth-card {
+  padding: 1.85rem;
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
+  background: var(--sheet);
+}
+
+.start-auth-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 1.25rem;
+}
+
+.start-auth-tab {
+  flex: 1;
+  padding: 0.65rem 1rem;
+  font-weight: 600;
+  font-size: 0.92rem;
+  color: var(--ink-muted);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.start-auth-tab:hover {
+  color: var(--ink);
+}
+
+.start-auth-tab.is-active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+
+.start-page-footer {
+  border-top: 1px solid var(--rule);
+  background-color: var(--sheet);
+  padding: 0.85rem 1.25rem;
+}
+
+.start-page-footer-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 860px) {
+  .start-page-content {
+    grid-template-columns: 1fr;
+    gap: 2rem;
+  }
+
+  .start-page-main {
+    padding: 1.5rem 1rem;
+  }
+
+  .start-auth-card {
+    padding: 1.25rem;
+  }
+}

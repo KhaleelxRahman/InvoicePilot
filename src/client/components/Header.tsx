@@ -97,14 +97,22 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
           <svg
             className="brand-logo-icon"
-            viewBox="0 0 24 24"
+            viewBox="0 0 28 28"
+            width="28"
+            height="28"
             fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+            aria-hidden="true"
           >
-            <polygon points="12 2 19 21 12 17 5 21 12 2"></polygon>
+            <rect width="28" height="28" rx="6" fill="var(--primary)" />
+            <path
+              d="M7 6C7 5.45 7.45 5 8 5H16L20 9V22C20 22.55 19.55 23 19 23H8C7.45 23 7 22.55 7 22V6Z"
+              fill="rgba(255,255,255,0.22)"
+            />
+            <path d="M16 5V9H20" stroke="rgba(255,255,255,0.4)" strokeWidth="1" strokeLinejoin="round" />
+            <line x1="9" y1="12" x2="14" y2="12" stroke="rgba(255,255,255,0.7)" strokeWidth="1.2" strokeLinecap="round" />
+            <line x1="9" y1="15" x2="13" y2="15" stroke="rgba(255,255,255,0.7)" strokeWidth="1.2" strokeLinecap="round" />
+            <polygon points="12,10 22,6 18,20 15,15" fill="#F59E0B" />
+            <polygon points="15,15 22,6 12,10" fill="#FDE68A" fillOpacity="0.85" />
           </svg>
           <div>
             <h1 className="brand-title">InvoicePilot</h1>
@@ -199,9 +207,14 @@ export const Header: React.FC<HeaderProps> = ({
                 aria-label="Notifications panel"
               >
                 <div className="notifications-popover-header">
-                  <span className="notifications-popover-title">
-                    Notifications ({notifications.filter((n) => !n.isRead).length} unread)
-                  </span>
+                  <div>
+                    <span className="notifications-popover-title">
+                      Notifications ({notifications.filter((n) => !n.isRead).length} unread)
+                    </span>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--ink-muted)', marginTop: '0.1rem' }}>
+                      In-app operational alerts (internal workspace alerts)
+                    </div>
+                  </div>
                   <button
                     type="button"
                     className="secondary-btn"
@@ -226,31 +239,57 @@ export const Header: React.FC<HeaderProps> = ({
                       No notifications yet.
                     </li>
                   ) : (
-                    notifications.slice(0, 6).map((n) => (
-                      <li
-                        key={n.id}
-                        className="notifications-popover-item"
-                        data-unread={!n.isRead}
-                        onClick={() => {
-                          if (!n.isRead) void handleMarkNotificationRead(n.id);
-                          setActiveSection('notifications');
-                          setNotificationDropdownOpen(false);
-                        }}
-                      >
-                        <div
-                          style={{
-                            fontWeight: 600,
-                            color: 'var(--ink)',
-                            marginBottom: '0.15rem'
+                    notifications.slice(0, 6).map((n) => {
+                      const matchedInvoice = invoices.find(
+                        (inv) =>
+                          n.body.includes(inv.invoiceNumber) || n.title.includes(inv.invoiceNumber)
+                      );
+                      return (
+                        <li
+                          key={n.id}
+                          className="notifications-popover-item"
+                          data-unread={!n.isRead}
+                          onClick={() => {
+                            if (!n.isRead) void handleMarkNotificationRead(n.id);
+                            if (matchedInvoice) {
+                              setSelectedInvoice(matchedInvoice);
+                              setActiveSection('invoices');
+                            } else {
+                              setActiveSection('notifications');
+                            }
+                            setNotificationDropdownOpen(false);
                           }}
                         >
-                          {n.title}
-                        </div>
-                        <div style={{ color: 'var(--ink-muted)', fontSize: '0.75rem' }}>
-                          {n.body}
-                        </div>
-                      </li>
-                    ))
+                          <div
+                            style={{
+                              fontWeight: 600,
+                              color: 'var(--ink)',
+                              marginBottom: '0.15rem',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between'
+                            }}
+                          >
+                            <span>{n.title}</span>
+                            {matchedInvoice && (
+                              <span
+                                className="status-badge"
+                                style={{
+                                  fontSize: '0.68rem',
+                                  padding: '0.1rem 0.35rem',
+                                  textTransform: 'none'
+                                }}
+                              >
+                                View {matchedInvoice.invoiceNumber} →
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ color: 'var(--ink-muted)', fontSize: '0.75rem' }}>
+                            {n.body}
+                          </div>
+                        </li>
+                      );
+                    })
                   )}
                 </ul>
                 <div className="notifications-popover-footer">

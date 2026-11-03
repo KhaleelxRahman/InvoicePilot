@@ -218,4 +218,123 @@ describe('Stage 10 — Core Product Pages Backend API & Data Integrity', () => {
     expect(Array.isArray(bundle.activity)).toBe(true);
     expect(Array.isArray(bundle.notifications)).toBe(true);
   });
+
+  it('generates real-event in-app notifications on approval slip creation, invoice dispatch, and payment recording', async () => {
+    const { app, repo } = createTestSetup();
+
+    // 1. Register test user
+    const regRes = await request(app)
+      .post('/api/auth/register')
+      .send({
+        email: 'notif-user@example.com',
+        password: 'password123',
+        displayName: 'Notification Tester'
+      });
+    expect(regRes.status).toBe(201);
+    const token = regRes.body.sessionToken;
+
+    // 2. Create client & invoice
+    const clientRes = await request(app)
+      .post('/api/clients')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        fullName: 'Notif Client',
+        email: 'notifclient@example.com'
+      });
+    expect(clientRes.status).toBe(201);
+    const clientId = clientRes.body.client.id;
+
+    const invRes = await request(app)
+      .post('/api/invoices')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        clientId,
+        invoiceNumber: 'INV-NOTIF-01',
+        currencyCode: 'USD',
+        issueDate: '2026-11-03',
+        dueDate: '2026-11-17',
+        taxRateBps: 0,
+        items: [
+          {
+            description: 'Brand Sprint Consulting',
+            quantity: 10,
+            unitAmountMinor: 10000 // $100.00
+          }
+        ]
+      });
+    expect(invRes.status).toBe(201);
+    const invoiceId = invRes.body.invoice.id;
+
+    // 3. Submit approval request -> Should generate "Approval slip ready" notification
+    const approvalRes = await request(app)
+      .post(`/api/invoices/${invoiceId}/approval-request`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+    expect(approvalRes.status).toBe(201);
+    const actionId = approvalRes.body.action.id;
+
+    const notifs1 = await request(app)
+      .get('/api/notifications')
+      .set('Authorization', `Bearer ${token}`);
+    expect(notifs1.status).toBe(200);
+    const readyNotif = notifs1.body.notifications.find((n: { title: string }) =>
+      n.title.includes('Approval slip ready')
+    );
+    expect(readyNotif).toBeDefined();
+    expect(readyNotif.body).toContain('INV-NOTIF-01');
+
+    // 4. Approve and execute send -> Should generate "Invoice sent" notification
+    const approveRes = await request(app)
+      .post(`/api/actions/${actionId}/approve`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+    expect(approveRes.status).toBe(200);
+
+    const sendRes = await request(app)
+      .post(`/api/invoices/${invoiceId}/paypal/send`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ actionId });
+    expect(sendRes.status).toBe(200);
+
+    const notifs2 = await request(app)
+      .get('/api/notifications')
+      .set('Authorization', `Bearer ${token}`);
+    const sentNotif = notifs2.body.notifications.find((n: { title: string }) =>
+      n.title.includes('Invoice sent via')
+    );
+    expect(sentNotif).toBeDefined();
+    expect(sentNotif.body).toContain('INV-NOTIF-01');
+
+    // 5. Record partial payment -> Should generate "Payment recorded" notification
+    const payRes = await request(app)
+      .post(`/api/invoices/${invoiceId}/partial-payment`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ amountMinor: 40000 }); // $400.00
+    expect(payRes.status).toBe(200);
+
+    const notifs3 = await request(app)
+      .get('/api/notifications')
+      .set('Authorization', `Bearer ${token}`);
+    const partialNotif = notifs3.body.notifications.find((n: { title: string }) =>
+      n.title.includes('Payment recorded')
+    );
+    expect(partialNotif).toBeDefined();
+    expect(partialNotif.body).toContain('INV-NOTIF-01');
+
+    // 6. Settle remaining balance -> Should generate "Invoice paid in full" notification
+    const payRes2 = await request(app)
+      .post(`/api/invoices/${invoiceId}/partial-payment`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ amountMinor: 60000 }); // $600.00
+    expect(payRes2.status).toBe(200);
+
+    const notifs4 = await request(app)
+      .get('/api/notifications')
+      .set('Authorization', `Bearer ${token}`);
+    const settledNotif = notifs4.body.notifications.find((n: { title: string }) =>
+      n.title.includes('Invoice paid in full')
+    );
+    expect(settledNotif).toBeDefined();
+    expect(settledNotif.body).toContain('INV-NOTIF-01');
+  });
 });

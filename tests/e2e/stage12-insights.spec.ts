@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { navigateToSection } from './testHelpers';
+import { navigateToSection, ensureWorkspaceLoaded } from './testHelpers';
 
 test.describe('Stage 12 — Grounded Aging and Cash-Flow Insights E2E', () => {
   test('verifies aging buckets, 30-day forecast projections, slow payer rankings, and partial payments', async ({
@@ -17,6 +17,7 @@ test.describe('Stage 12 — Grounded Aging and Cash-Flow Insights E2E', () => {
 
     await page.goto('/');
     test.setTimeout(60000);
+    await ensureWorkspaceLoaded(page);
 
     // =========================================================================
     // 1. Executive Summary & Observed Facts
