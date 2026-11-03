@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { navigateToSection } from './testHelpers';
 
 test.describe('Stage 05 — Clients and Conventional Invoice Draft Workflow', () => {
   test('creates & edits client, validates invalid draft input, persists & reloads multi-item invoice draft, and edits draft without sending to PayPal', async ({
@@ -22,7 +23,7 @@ test.describe('Stage 05 — Clients and Conventional Invoice Draft Workflow', ()
     await page.goto('/');
 
     // 1. Navigate to Clients directory and create a new client
-    await page.getByTestId('nav-clients').click();
+    await navigateToSection(page, 'nav-clients');
     await expect(
       page.getByRole('heading', { name: 'Clients directory & profile management' })
     ).toBeVisible();
@@ -122,7 +123,7 @@ test.describe('Stage 05 — Clients and Conventional Invoice Draft Workflow', ()
 
     // 3. Reload page to verify SQLite persistence across browser reload
     await page.reload();
-    await page.getByTestId('nav-invoices').click();
+    await navigateToSection(page, 'nav-invoices');
     await expect(page.getByTestId(`invoice-row-${invoiceNum}`)).toBeVisible();
 
     // 4. Edit the persisted draft and verify server recalculation
@@ -200,13 +201,13 @@ test.describe('Stage 05 — Clients and Conventional Invoice Draft Workflow', ()
     await page.goto('/');
 
     // 1. Verify empty states on both Invoices and Clients sections
-    await page.getByTestId('nav-invoices').click();
+    await navigateToSection(page, 'nav-invoices');
     await expect(page.getByTestId('invoices-empty-state')).toBeVisible();
     await expect(page.getByTestId('invoices-empty-state')).toContainText(
       'No invoices found for this workspace'
     );
 
-    await page.getByTestId('nav-clients').click();
+    await navigateToSection(page, 'nav-clients');
     await expect(page.getByTestId('clients-empty-state')).toBeVisible();
     await expect(page.getByTestId('clients-empty-state')).toContainText('No clients saved yet');
 
@@ -218,7 +219,7 @@ test.describe('Stage 05 — Clients and Conventional Invoice Draft Workflow', ()
       'Simulated clients directory failure.'
     );
 
-    await page.getByTestId('nav-invoices').click();
+    await navigateToSection(page, 'nav-invoices');
     await page.getByTestId('refresh-invoices-btn').click();
     await expect(page.getByTestId('invoices-error-alert')).toBeVisible();
     await expect(page.getByTestId('invoices-error-alert')).toContainText(

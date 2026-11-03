@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { navigateToSection } from './testHelpers';
 
 test.describe('Stage 09 — Authentication, Demo Isolation, and Onboarding E2E', () => {
   test('registers new user, navigates 4-step onboarding wizard to completion, and tests demo isolation/reset', async ({
@@ -43,7 +44,7 @@ test.describe('Stage 09 — Authentication, Demo Isolation, and Onboarding E2E',
     await expect(page.getByTestId('reset-demo-btn')).toBeHidden();
 
     // 3. Step 1: Business Details
-    await page.getByTestId('nav-onboarding').click();
+    await navigateToSection(page, 'nav-onboarding');
     await expect(page.getByTestId('onboarding-step1-card')).toBeVisible();
     await page.getByTestId('onboarding-business-name-input').fill(`Apex Advisory ${uniqueSuffix}`);
     await page.getByTestId('onboarding-business-email-input').fill(testEmail);
@@ -78,7 +79,7 @@ test.describe('Stage 09 — Authentication, Demo Isolation, and Onboarding E2E',
     await expect(page.getByTestId('new-invoice-btn')).toBeVisible();
 
     // 9. Verify first client appears in clients directory
-    await page.getByTestId('nav-clients').click();
+    await navigateToSection(page, 'nav-clients');
     await expect(page.getByText(`First Client ${uniqueSuffix}`)).toBeVisible();
 
     // 10. Test Log out and Demo Reset
@@ -105,7 +106,7 @@ test.describe('Stage 09 — Authentication, Demo Isolation, and Onboarding E2E',
     await page.goto('/');
 
     // Navigate to onboarding
-    await page.getByTestId('nav-onboarding').click();
+    await navigateToSection(page, 'nav-onboarding');
 
     // If already at step 1, skip it
     if (await page.getByTestId('onboarding-skip-btn').isVisible()) {
@@ -113,7 +114,7 @@ test.describe('Stage 09 — Authentication, Demo Isolation, and Onboarding E2E',
     }
 
     // Verify navigation or status
-    await page.getByTestId('nav-onboarding').click();
+    await navigateToSection(page, 'nav-onboarding');
     if (await page.getByTestId('onboarding-reset-btn').isVisible()) {
       await page.getByTestId('onboarding-reset-btn').click();
       await expect(page.getByTestId('onboarding-step1-card')).toBeVisible();

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { navigateToSection } from './testHelpers';
 
 test.describe('Stage 07 — Constrained Gemini Structured Agent UI & Fallback Workflow', () => {
   test('renders AI Agent assistant workspace, blocks approval-bypass prompt server-side, displays structured clarification/fallback states, and preserves conventional invoice form', async ({
@@ -17,7 +18,7 @@ test.describe('Stage 07 — Constrained Gemini Structured Agent UI & Fallback Wo
     await page.goto('/');
 
     // 1. Open AI Agent assistant section
-    await page.getByTestId('nav-agent').click();
+    await navigateToSection(page, 'nav-agent');
     await expect(page.getByTestId('agent-workspace-panel')).toBeVisible();
     await expect(page.getByTestId('agent-config-status')).toContainText('GEMINI MODEL:');
 

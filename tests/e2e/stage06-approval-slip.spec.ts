@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { navigateToSection } from './testHelpers';
 
 test.describe('Stage 06 — Paper Approval Slip and Safe Action State Machine', () => {
   test('renders paper approval slip, edits draft, rejects/discards slip safely, approves and executes fresh slip, blocks duplicate/stale/unauthorized actions, and logs transitions in Activity', async ({
@@ -22,7 +23,7 @@ test.describe('Stage 06 — Paper Approval Slip and Safe Action State Machine', 
     await page.goto('/');
 
     // 1. Navigate to Invoices & drafts and create a fresh draft invoice
-    await page.getByTestId('nav-invoices').click();
+    await navigateToSection(page, 'nav-invoices');
     await page.getByTestId('new-invoice-btn').click();
     await expect(page.getByTestId('invoice-draft-form')).toBeVisible();
 
@@ -125,7 +126,7 @@ test.describe('Stage 06 — Paper Approval Slip and Safe Action State Machine', 
     expect(dupExecRes.status()).toBe(409);
 
     // 7. Navigate to Activity & audit log and verify transitions are recorded
-    await page.getByTestId('nav-activity').click();
+    await navigateToSection(page, 'nav-activity');
     const activityTable = page.getByTestId('activity-table');
     await expect(activityTable).toBeVisible();
     await expect(activityTable).toContainText('ACTION_PROPOSED_FOR_APPROVAL');

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { navigateToSection } from './testHelpers';
 
 test.describe('Stage 08 — End-to-End PayPal Sandbox Invoice Send, Persistence & Status Refresh', () => {
   test('executes approved invoice send, persists and displays real provider invoice ID and recipient URL, refreshes provider status from PayPal, rejects unverified webhooks, and records Activity', async ({
@@ -22,7 +23,7 @@ test.describe('Stage 08 — End-to-End PayPal Sandbox Invoice Send, Persistence 
     await page.goto('/');
 
     // 1. Navigate to Invoices & drafts and create a fresh draft invoice
-    await page.getByTestId('nav-invoices').click();
+    await navigateToSection(page, 'nav-invoices');
     await page.getByTestId('new-invoice-btn').click();
     await expect(page.getByTestId('invoice-draft-form')).toBeVisible();
 
@@ -139,7 +140,7 @@ test.describe('Stage 08 — End-to-End PayPal Sandbox Invoice Send, Persistence 
     expect(unverifiedWebhookRes.status()).toBe(400);
 
     // 7. Navigate to Activity & audit log and verify both ACTION_EXECUTED and INVOICE_PROVIDER_STATUS_REFRESHED
-    await page.getByTestId('nav-activity').click();
+    await navigateToSection(page, 'nav-activity');
     const activityTable = page.getByTestId('activity-table');
     await expect(activityTable).toBeVisible();
     await expect(activityTable).toContainText('ACTION_EXECUTED');

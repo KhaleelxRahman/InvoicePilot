@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { navigateToSection } from './testHelpers';
 
 test.describe('Stage 14 — Remaining Pages, Controls, Webhook Viewer & Account Deletion', () => {
   test('verifies Help & FAQ, Legal & Policies, Invoice Preset Templates, Webhook Event Viewer, and Account Deletion', async ({
@@ -19,7 +20,7 @@ test.describe('Stage 14 — Remaining Pages, Controls, Webhook Viewer & Account 
     // =========================================================================
     // 1. Help & FAQ (Page 24)
     // =========================================================================
-    await page.getByTestId('nav-help').click();
+    await navigateToSection(page, 'nav-help');
     await expect(page.locator('#section-help-title')).toBeVisible();
     await expect(page.getByTestId('faq-search-input')).toBeVisible();
 
@@ -42,7 +43,7 @@ test.describe('Stage 14 — Remaining Pages, Controls, Webhook Viewer & Account 
     // =========================================================================
     // 2. Legal & Policies (Page 25)
     // =========================================================================
-    await page.getByTestId('nav-policies').click();
+    await navigateToSection(page, 'nav-policies');
     await expect(page.locator('#section-policies-title')).toBeVisible();
 
     // Terms of Service
@@ -68,7 +69,7 @@ test.describe('Stage 14 — Remaining Pages, Controls, Webhook Viewer & Account 
     // =========================================================================
     // 3. Invoice Templates & Preset Insertion in Draft Form (Page 16)
     // =========================================================================
-    await page.getByTestId('nav-invoices').click();
+    await navigateToSection(page, 'nav-invoices');
     await page.getByTestId('new-invoice-btn').click();
     await expect(page.getByTestId('invoice-draft-form')).toBeVisible();
 
@@ -94,7 +95,7 @@ test.describe('Stage 14 — Remaining Pages, Controls, Webhook Viewer & Account 
     // =========================================================================
     // 4. Settings: Developer & Webhook Viewer, Data Export, Account Deletion
     // =========================================================================
-    await page.getByTestId('nav-settings').click();
+    await navigateToSection(page, 'nav-settings');
 
     // Developer & Webhooks tab
     await page.getByTestId('settings-tab-developer').click();

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { navigateToSection } from './testHelpers';
 
 test.describe('Stage 12 — Grounded Aging and Cash-Flow Insights E2E', () => {
   test('verifies aging buckets, 30-day forecast projections, slow payer rankings, and partial payments', async ({
@@ -57,9 +58,7 @@ test.describe('Stage 12 — Grounded Aging and Cash-Flow Insights E2E', () => {
     // 5. Partial Payment Recording Workflow
     // =========================================================================
     // Navigate to invoices section
-    const navInvoices = page.getByTestId('nav-invoices');
-    await expect(navInvoices).toBeVisible();
-    await navInvoices.click();
+    await navigateToSection(page, 'nav-invoices');
 
     // Open first available invoice detail
     const firstViewDetailBtn = page.locator('button[data-testid^="view-invoice-"]').first();
@@ -94,9 +93,7 @@ test.describe('Stage 12 — Grounded Aging and Cash-Flow Insights E2E', () => {
     }
 
     // Return to overview and verify updated insights
-    const navOverview = page.getByTestId('nav-overview');
-    await expect(navOverview).toBeVisible();
-    await navOverview.click();
+    await navigateToSection(page, 'nav-overview');
 
     await expect(forecastCard).toBeVisible();
     await expect(slowPayerTable).toBeVisible();

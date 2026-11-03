@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { navigateToSection } from './testHelpers';
 
 test.describe('Stage 10 — Core Product Pages E2E', () => {
   test('navigates and verifies Home (Page 12), Invoices (14 & 15), Clients (17 & 18), Activity (21), Notifications (22), and Settings (23)', async ({
@@ -19,7 +20,7 @@ test.describe('Stage 10 — Core Product Pages E2E', () => {
     // =========================================================================
     // 1. Home (Page 12)
     // =========================================================================
-    await page.getByTestId('nav-overview').click();
+    await navigateToSection(page, 'nav-overview');
     const homeStatement = page.getByTestId('home-summary-statement');
     await expect(homeStatement).toBeVisible();
     await expect(homeStatement).toContainText('You are owed');
@@ -35,7 +36,7 @@ test.describe('Stage 10 — Core Product Pages E2E', () => {
     // =========================================================================
     // 2. Invoices List & Detail Paper Document (Pages 14 & 15)
     // =========================================================================
-    await page.getByTestId('nav-invoices').click();
+    await navigateToSection(page, 'nav-invoices');
     await expect(page.getByTestId('invoice-search-input')).toBeVisible();
     await expect(page.getByTestId('invoice-status-filter')).toBeVisible();
     await expect(page.getByTestId('invoice-sort-select')).toBeVisible();
@@ -70,7 +71,7 @@ test.describe('Stage 10 — Core Product Pages E2E', () => {
     // =========================================================================
     // 3. Clients Directory & Client Profile (Pages 17 & 18)
     // =========================================================================
-    await page.getByTestId('nav-clients').click();
+    await navigateToSection(page, 'nav-clients');
     await expect(page.getByTestId('client-search-input')).toBeVisible();
     await expect(page.getByTestId('clients-table')).toBeVisible();
 
@@ -94,7 +95,7 @@ test.describe('Stage 10 — Core Product Pages E2E', () => {
     // =========================================================================
     // 4. Activity Log (Page 21)
     // =========================================================================
-    await page.getByTestId('nav-activity').click();
+    await navigateToSection(page, 'nav-activity');
     await expect(page.getByTestId('activity-search-input')).toBeVisible();
     await expect(page.getByTestId('activity-result-filter')).toBeVisible();
     await expect(page.getByTestId('export-activity-csv-btn')).toBeVisible();
@@ -106,7 +107,7 @@ test.describe('Stage 10 — Core Product Pages E2E', () => {
     // =========================================================================
     // 5. Notifications (Page 22)
     // =========================================================================
-    await page.getByTestId('nav-notifications').click();
+    await navigateToSection(page, 'nav-notifications');
     await expect(page.getByTestId('notif-filter-all')).toBeVisible();
     await expect(page.getByTestId('notif-filter-unread')).toBeVisible();
     await expect(page.getByTestId('mark-all-read-btn')).toBeVisible();
@@ -123,7 +124,7 @@ test.describe('Stage 10 — Core Product Pages E2E', () => {
     // =========================================================================
     // 6. Settings (Page 23)
     // =========================================================================
-    await page.getByTestId('nav-settings').click();
+    await navigateToSection(page, 'nav-settings');
     await expect(page.getByTestId('settings-tab-business')).toBeVisible();
     await expect(page.getByTestId('settings-tab-paypal')).toBeVisible();
     await expect(page.getByTestId('settings-tab-agent')).toBeVisible();

@@ -74,6 +74,10 @@ test.describe('Stage 01 — Responsive Shell, Design Tokens, and Health Endpoint
       page.getByRole('heading', { name: 'Implementation honesty & stage status' })
     ).toBeVisible();
 
+    const mobileMenu = page.getByTestId('mobile-menu-toggle');
+    if (await mobileMenu.isVisible()) {
+      await mobileMenu.click();
+    }
     await page.getByTestId('nav-overview').click();
     await page.getByTestId('refresh-health-btn').click();
     await expect(page.getByTestId('health-status-value')).toContainText('invoicepilot (stage-');

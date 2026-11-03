@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { navigateToSection } from './testHelpers';
 
 test.describe('Stage 11 — Reminder Drafts, Client Tone & Observable Scheduling E2E', () => {
   test('verifies reminder drafting, client tone selection, approval workflow, scheduling, and delivery evidence', async ({
@@ -19,9 +20,7 @@ test.describe('Stage 11 — Reminder Drafts, Client Tone & Observable Scheduling
     // =========================================================================
     // 1. Navigation & Page 19 Layout
     // =========================================================================
-    const navReminders = page.getByTestId('nav-reminders');
-    await expect(navReminders).toBeVisible();
-    await navReminders.click();
+    await navigateToSection(page, 'nav-reminders');
 
     // Verify Page 19 3 queues / tabs
     const tabWaiting = page.getByTestId('reminders-waiting-approval');
@@ -94,7 +93,7 @@ test.describe('Stage 11 — Reminder Drafts, Client Tone & Observable Scheduling
     // =========================================================================
     // 5. Invoice Detail "Draft reminder" Action (Page 15 Integration)
     // =========================================================================
-    await page.getByTestId('nav-invoices').click();
+    await navigateToSection(page, 'nav-invoices');
     const viewInvBtn = page.locator('button[data-testid^="view-invoice-"]').first();
     await viewInvBtn.click();
 
@@ -109,7 +108,7 @@ test.describe('Stage 11 — Reminder Drafts, Client Tone & Observable Scheduling
     // =========================================================================
     // 6. Observable Scheduler Execution
     // =========================================================================
-    await page.getByTestId('nav-reminders').click();
+    await navigateToSection(page, 'nav-reminders');
     await page.getByTestId('process-scheduled-reminders-btn').click();
     const schedResult = page.getByTestId('scheduler-execution-result');
     await expect(schedResult).toBeVisible();

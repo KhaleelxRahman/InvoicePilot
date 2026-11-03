@@ -1,4 +1,17 @@
 import React, { useEffect, useState } from 'react';
+import { GlobalSearch } from './components/GlobalSearch';
+import { DeveloperDiagnostics } from './components/DeveloperDiagnostics';
+import { Header } from './components/Header';
+import { Sidebar } from './components/Sidebar';
+import { Footer } from './components/Footer';
+import { AuthModal } from './components/AuthModal';
+import { ApprovalSlip } from './components/ApprovalSlip';
+import { InvoiceDraftForm } from './components/InvoiceDraftForm';
+import { InvoiceDetailView } from './components/InvoiceDetailView';
+import { ClientDetailView } from './components/ClientDetailView';
+import { ReminderModal } from './components/ReminderModal';
+
+export * from './types';
 
 export type ThemePreference = 'light' | 'dark' | 'system';
 export type ShellSection =
@@ -1063,6 +1076,34 @@ export function App() {
       await loadActivities();
     } catch (err) {
       setAuthError(err instanceof Error ? err.message : 'Registration failed.');
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  async function handleDemoLogin() {
+    setAuthLoading(true);
+    try {
+      const res = await fetch('/api/auth/demo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCurrentUser(data.user);
+        setSessionToken(data.sessionToken);
+        setOnboarding(data.onboarding);
+        try {
+          window.localStorage.setItem(
+            'invoicepilot-session-token',
+            data.sessionToken
+          );
+        } catch {}
+        setAuthModalOpen(false);
+        await loadClients();
+        await loadInvoices();
+        await loadActivities();
+      }
     } finally {
       setAuthLoading(false);
     }
@@ -2306,529 +2347,59 @@ export function App() {
         Skip to main workspace
       </a>
 
-      <header className="shell-header">
-        <div className="shell-header-inner">
-          <div className="brand-group">
-            <button
-              type="button"
-              className="mobile-nav-toggle"
-              aria-label="Toggle navigation menu"
-              data-testid="mobile-menu-toggle"
-              onClick={() => setMobileNavOpen(!mobileNavOpen)}
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="3" y1="12" x2="21" y2="12"></line>
-                <line x1="3" y1="6" x2="21" y2="6"></line>
-                <line x1="3" y1="18" x2="21" y2="18"></line>
-              </svg>
-            </button>
-            <svg className="brand-logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polygon points="12 2 19 21 12 17 5 21 12 2"></polygon>
-            </svg>
-            <div>
-              <h1 className="brand-title">InvoicePilot</h1>
-              <span className="brand-subtitle">Financial Workspace</span>
-            </div>
-          </div>
-
-          <div className="header-search-wrap">
-            <svg className="header-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="11" cy="11" r="8"></circle>
-              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-            </svg>
-            <input
-              type="search"
-              className="header-search-input"
-              data-testid="header-search-input"
-              placeholder="Search invoices, clients, activities... (/ to focus)"
-              value={headerSearchQuery}
-              onChange={(e) => {
-                const q = e.target.value;
-                setHeaderSearchQuery(q);
-                setInvoiceSearch(q);
-                setClientSearch(q);
-                setActivitySearch(q);
-              }}
-            />
-            <kbd className="header-search-kbd">/</kbd>
-          </div>
-
-          <div className="header-controls">
-            {/* Prominent + Create invoice CTA */}
-            <button
-              type="button"
-              className="header-create-btn"
-              data-testid="header-create-invoice-btn"
-              onClick={() => {
-                setSelectedInvoice(null);
-                setInvoiceFormMode('create');
-                setActiveSection('invoices');
-              }}
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="12" y1="5" x2="12" y2="19"></line>
-                <line x1="5" y1="12" x2="19" y2="12"></line>
-              </svg>
-              <span>+ Create invoice</span>
-            </button>
-
-            {/* Notification Bell with working dropdown */}
-            <div style={{ position: 'relative' }}>
-              <button
-                type="button"
-                className="header-bell-btn"
-                data-testid="header-notifications-bell"
-                aria-label="View notifications"
-                onClick={() => setNotificationDropdownOpen(!notificationDropdownOpen)}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
-                  <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
-                </svg>
-                {notifications.filter((n) => !n.isRead).length > 0 && (
-                  <span
-                    className="bell-badge-pill tabular-nums"
-                    data-testid="notifications-unread-badge"
-                  >
-                    {notifications.filter((n) => !n.isRead).length}
-                  </span>
-                )}
-              </button>
-
-              {notificationDropdownOpen && (
-                <div className="header-notifications-popover" role="dialog" aria-label="Notifications panel">
-                  <div className="notifications-popover-header">
-                    <span className="notifications-popover-title">
-                      Notifications ({notifications.filter((n) => !n.isRead).length} unread)
-                    </span>
-                    <button
-                      type="button"
-                      className="secondary-btn"
-                      style={{ padding: '0.2rem 0.45rem', fontSize: '0.75rem' }}
-                      onClick={async () => {
-                        await handleMarkAllNotificationsRead();
-                      }}
-                    >
-                      Mark all read
-                    </button>
-                  </div>
-                  <ul className="notifications-popover-list">
-                    {notifications.length === 0 ? (
-                      <li style={{ padding: '1rem', textAlign: 'center', color: 'var(--ink-muted)', fontSize: '0.8rem' }}>
-                        No notifications yet.
-                      </li>
-                    ) : (
-                      notifications.slice(0, 6).map((n) => (
-                        <li
-                          key={n.id}
-                          className="notifications-popover-item"
-                          data-unread={!n.isRead}
-                          onClick={() => {
-                            if (!n.isRead) void handleMarkNotificationRead(n.id);
-                            setActiveSection('notifications');
-                            setNotificationDropdownOpen(false);
-                          }}
-                        >
-                          <div style={{ fontWeight: 600, color: 'var(--ink)', marginBottom: '0.15rem' }}>{n.title}</div>
-                          <div style={{ color: 'var(--ink-muted)', fontSize: '0.75rem' }}>{n.body}</div>
-                        </li>
-                      ))
-                    )}
-                  </ul>
-                  <div className="notifications-popover-footer">
-                    <button
-                      type="button"
-                      className="action-btn"
-                      style={{ width: '100%', fontSize: '0.78rem', padding: '0.35rem 0.6rem' }}
-                      onClick={() => {
-                        setActiveSection('notifications');
-                        setNotificationDropdownOpen(false);
-                      }}
-                    >
-                      View all notifications ({notifications.length})
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div
-              className="user-status-badge"
-              data-demo={currentUser?.isDemo ? 'true' : 'false'}
-              data-testid="current-user-badge"
-              role="status"
-            >
-              <div className="user-avatar-circle">
-                {currentUser?.displayName
-                  ? currentUser.displayName
-                      .split(' ')
-                      .map((w) => w[0])
-                      .join('')
-                      .slice(0, 2)
-                      .toUpperCase()
-                  : 'GU'}
-              </div>
-              <span style={{ fontSize: '0.82rem', fontWeight: 600 }}>{currentUser ? currentUser.displayName : 'Guest'}</span>
-              {currentUser?.isDemo && (
-                <span className="status-pill" data-tone="caution" style={{ fontSize: '0.65rem', padding: '0.05rem 0.35rem' }}>
-                  Demo
-                </span>
-              )}
-            </div>
-
-            {currentUser?.isDemo && (
-              <button
-                type="button"
-                className="secondary-btn"
-                data-testid="reset-demo-btn"
-                disabled={authLoading}
-                onClick={() => void handleDemoReset()}
-              >
-                Reset demo
-              </button>
-            )}
-
-            <button
-              type="button"
-              className="secondary-btn"
-              data-testid="auth-modal-btn"
-              onClick={() => {
-                setAuthModalOpen(true);
-                setAuthError(null);
-              }}
-            >
-              {currentUser && !currentUser.isDemo ? 'Account' : 'Sign in'}
-            </button>
-
-            {currentUser && (
-              <button
-                type="button"
-                className="secondary-btn"
-                data-testid="logout-btn"
-                disabled={authLoading}
-                onClick={() => void handleLogout()}
-              >
-                Log out
-              </button>
-            )}
-
-            <div
-              className="mode-badge"
-              data-mode={currentMode}
-              data-testid="provider-mode-badge"
-              role="status"
-              aria-live="polite"
-            >
-              <span>
-                {currentMode === 'sandbox'
-                  ? 'Mode: PayPal Sandbox'
-                  : 'Mode: Isolated Mock'}
-              </span>
-            </div>
-
-            <fieldset className="theme-fieldset" aria-label="Appearance theme">
-              <legend className="theme-legend">Appearance theme</legend>
-              {(['light', 'dark', 'system'] as const).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  className="theme-btn"
-                  aria-pressed={themePref === mode}
-                  data-testid={`theme-btn-${mode}`}
-                  onClick={() => setThemePref(mode)}
-                >
-                  {mode.charAt(0).toUpperCase() + mode.slice(1)}
-                </button>
-              ))}
-            </fieldset>
-          </div>
-        </div>
-      </header>
+      <Header
+        mobileNavOpen={mobileNavOpen}
+        setMobileNavOpen={setMobileNavOpen}
+        headerSearchQuery={headerSearchQuery}
+        setHeaderSearchQuery={setHeaderSearchQuery}
+        setInvoiceSearch={setInvoiceSearch}
+        setClientSearch={setClientSearch}
+        setActivitySearch={setActivitySearch}
+        invoices={invoices}
+        clients={clients}
+        setSelectedInvoice={setSelectedInvoice}
+        setSelectedClient={setSelectedClient}
+        setActiveSection={setActiveSection}
+        setInvoiceFormMode={setInvoiceFormMode}
+        notifications={notifications}
+        notificationDropdownOpen={notificationDropdownOpen}
+        setNotificationDropdownOpen={setNotificationDropdownOpen}
+        handleMarkAllNotificationsRead={handleMarkAllNotificationsRead}
+        handleMarkNotificationRead={handleMarkNotificationRead}
+        currentUser={currentUser}
+        authLoading={authLoading}
+        handleLogout={handleLogout}
+        handleDemoReset={handleDemoReset}
+        setAuthModalOpen={setAuthModalOpen}
+        setAuthError={setAuthError}
+        currentMode={currentMode}
+        themePref={themePref}
+        setThemePref={setThemePref}
+      />
 
       <div className="shell-body">
-        <nav className="ledger-nav" aria-label="Workspace sections">
-          {/* Group 1: Main Workspace */}
-          <div className="nav-group">
-            <h2 className="ledger-nav-heading">Main Workspace</h2>
-            <ul className="ledger-nav-list">
-              <li>
-                <button
-                  type="button"
-                  className="ledger-nav-btn"
-                  aria-current={activeSection === 'overview' ? 'page' : undefined}
-                  data-testid="nav-overview"
-                  onClick={() => {
-                    setActiveSection('overview');
-                    setMobileNavOpen(false);
-                  }}
-                >
-                  <span className="nav-btn-label">
-                    <svg className="nav-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="3" y="3" width="7" height="7"></rect>
-                      <rect x="14" y="3" width="7" height="7"></rect>
-                      <rect x="14" y="14" width="7" height="7"></rect>
-                      <rect x="3" y="14" width="7" height="7"></rect>
-                    </svg>
-                    <span>Overview</span>
-                  </span>
-                  <span className="nav-badge-pill tabular-nums">01</span>
-                </button>
-              </li>
-              <li>
-                <button
-                  type="button"
-                  className="ledger-nav-btn"
-                  aria-current={activeSection === 'invoices' ? 'page' : undefined}
-                  data-testid="nav-invoices"
-                  onClick={() => {
-                    setActiveSection('invoices');
-                    setMobileNavOpen(false);
-                  }}
-                >
-                  <span className="nav-btn-label">
-                    <svg className="nav-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                      <polyline points="14 2 14 8 20 8"></polyline>
-                      <line x1="16" y1="13" x2="8" y2="13"></line>
-                      <line x1="16" y1="17" x2="8" y2="17"></line>
-                      <polyline points="10 9 9 9 8 9"></polyline>
-                    </svg>
-                    <span>Invoices &amp; drafts</span>
-                  </span>
-                  <span className="nav-badge-pill tabular-nums" data-testid="nav-invoices-count">
-                    {invoices.length}
-                  </span>
-                </button>
-              </li>
-              <li>
-                <button
-                  type="button"
-                  className="ledger-nav-btn"
-                  aria-current={activeSection === 'clients' ? 'page' : undefined}
-                  data-testid="nav-clients"
-                  onClick={() => {
-                    setActiveSection('clients');
-                    setMobileNavOpen(false);
-                  }}
-                >
-                  <span className="nav-btn-label">
-                    <svg className="nav-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-                      <circle cx="9" cy="7" r="4"></circle>
-                      <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-                      <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-                    </svg>
-                    <span>Clients directory</span>
-                  </span>
-                  <span className="nav-badge-pill tabular-nums" data-testid="nav-clients-count">
-                    {clients.length}
-                  </span>
-                </button>
-              </li>
-              <li>
-                <button
-                  type="button"
-                  className="ledger-nav-btn"
-                  aria-current={activeSection === 'reminders' ? 'page' : undefined}
-                  data-testid="nav-reminders"
-                  onClick={() => {
-                    setActiveSection('reminders');
-                    setMobileNavOpen(false);
-                  }}
-                >
-                  <span className="nav-btn-label">
-                    <svg className="nav-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="12" cy="12" r="10"></circle>
-                      <polyline points="12 6 12 12 16 14"></polyline>
-                    </svg>
-                    <span>Reminders</span>
-                  </span>
-                  <span className="nav-badge-pill tabular-nums" data-testid="nav-reminders-count">
-                    {
-                      reminders.filter(
-                        (r) => r.approvalState === 'PENDING_APPROVAL' || r.approvalState === 'DRAFTED'
-                      ).length
-                    }
-                  </span>
-                </button>
-              </li>
-            </ul>
-          </div>
-
-          {/* Group 2: Tools & Audit */}
-          <div className="nav-group">
-            <h2 className="ledger-nav-heading">Tools &amp; Audit</h2>
-            <ul className="ledger-nav-list">
-              <li>
-                <button
-                  type="button"
-                  className="ledger-nav-btn"
-                  aria-current={activeSection === 'agent' ? 'page' : undefined}
-                  data-testid="nav-agent"
-                  onClick={() => {
-                    setActiveSection('agent');
-                    setMobileNavOpen(false);
-                  }}
-                >
-                  <span className="nav-btn-label">
-                    <svg className="nav-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path>
-                    </svg>
-                    <span>AI Agent assistant</span>
-                  </span>
-                  <span className="nav-badge-pill tabular-nums">AI</span>
-                </button>
-              </li>
-              <li>
-                <button
-                  type="button"
-                  className="ledger-nav-btn"
-                  aria-current={activeSection === 'activity' ? 'page' : undefined}
-                  data-testid="nav-activity"
-                  onClick={() => {
-                    setActiveSection('activity');
-                    setMobileNavOpen(false);
-                  }}
-                >
-                  <span className="nav-btn-label">
-                    <svg className="nav-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="8" y1="6" x2="21" y2="6"></line>
-                      <line x1="8" y1="12" x2="21" y2="12"></line>
-                      <line x1="8" y1="18" x2="21" y2="18"></line>
-                      <line x1="3" y1="6" x2="3.01" y2="6"></line>
-                      <line x1="3" y1="12" x2="3.01" y2="12"></line>
-                      <line x1="3" y1="18" x2="3.01" y2="18"></line>
-                    </svg>
-                    <span>Activity &amp; audit log</span>
-                  </span>
-                  <span className="nav-badge-pill tabular-nums" data-testid="nav-activity-count">
-                    {activities.length}
-                  </span>
-                </button>
-              </li>
-              <li>
-                <button
-                  type="button"
-                  className="ledger-nav-btn"
-                  aria-current={activeSection === 'notifications' ? 'page' : undefined}
-                  data-testid="nav-notifications"
-                  onClick={() => {
-                    setActiveSection('notifications');
-                    setMobileNavOpen(false);
-                  }}
-                >
-                  <span className="nav-btn-label">
-                    <svg className="nav-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
-                      <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
-                    </svg>
-                    <span>Notifications</span>
-                  </span>
-                  <span className="nav-badge-pill tabular-nums" data-testid="nav-notifications-count">
-                    {notifications.filter((n) => !n.isRead).length}
-                  </span>
-                </button>
-              </li>
-            </ul>
-          </div>
-
-          {/* Group 3: Workspace & Support */}
-          <div className="nav-group">
-            <h2 className="ledger-nav-heading">Workspace &amp; Support</h2>
-            <ul className="ledger-nav-list">
-              <li>
-                <button
-                  type="button"
-                  className="ledger-nav-btn"
-                  aria-current={activeSection === 'settings' ? 'page' : undefined}
-                  data-testid="nav-settings"
-                  onClick={() => {
-                    setActiveSection('settings');
-                    setMobileNavOpen(false);
-                  }}
-                >
-                  <span className="nav-btn-label">
-                    <svg className="nav-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="12" cy="12" r="3"></circle>
-                      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-                    </svg>
-                    <span>Settings</span>
-                  </span>
-                  <span className="nav-badge-pill tabular-nums">23</span>
-                </button>
-              </li>
-              <li>
-                <button
-                  type="button"
-                  className="ledger-nav-btn"
-                  aria-current={activeSection === 'onboarding' ? 'page' : undefined}
-                  data-testid="nav-onboarding"
-                  onClick={() => {
-                    setActiveSection('onboarding');
-                    setMobileNavOpen(false);
-                  }}
-                >
-                  <span className="nav-btn-label">
-                    <svg className="nav-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path>
-                      <line x1="4" y1="22" x2="4" y2="15"></line>
-                    </svg>
-                    <span>Getting started</span>
-                  </span>
-                  <span className="nav-badge-pill tabular-nums" data-testid="nav-onboarding-status">
-                    {onboarding?.completed
-                      ? 'DONE'
-                      : onboarding?.skipped
-                      ? 'SKIP'
-                      : `0${onboarding?.currentStep ?? 1}`}
-                  </span>
-                </button>
-              </li>
-              <li>
-                <button
-                  type="button"
-                  className="ledger-nav-btn"
-                  aria-current={activeSection === 'help' ? 'page' : undefined}
-                  data-testid="nav-help"
-                  onClick={() => {
-                    setActiveSection('help');
-                    setMobileNavOpen(false);
-                  }}
-                >
-                  <span className="nav-btn-label">
-                    <svg className="nav-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="12" cy="12" r="10"></circle>
-                      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
-                      <line x1="12" y1="17" x2="12.01" y2="17"></line>
-                    </svg>
-                    <span>Help &amp; FAQ</span>
-                  </span>
-                  <span className="nav-badge-pill tabular-nums">?</span>
-                </button>
-              </li>
-              <li>
-                <button
-                  type="button"
-                  className="ledger-nav-btn"
-                  aria-current={activeSection === 'policies' ? 'page' : undefined}
-                  data-testid="nav-policies"
-                  onClick={() => {
-                    setActiveSection('policies');
-                    setMobileNavOpen(false);
-                  }}
-                >
-                  <span className="nav-btn-label">
-                    <svg className="nav-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-                    </svg>
-                    <span>Legal &amp; policies</span>
-                  </span>
-                  <span className="nav-badge-pill tabular-nums">§</span>
-                </button>
-              </li>
-            </ul>
-          </div>
-        </nav>
+        <Sidebar
+          mobileNavOpen={mobileNavOpen}
+          setMobileNavOpen={setMobileNavOpen}
+          activeSection={activeSection}
+          setActiveSection={setActiveSection}
+          invoicesCount={invoices.length}
+          clientsCount={clients.length}
+          remindersCount={
+            reminders.filter(
+              (r) => r.approvalState === 'PENDING_APPROVAL' || r.approvalState === 'DRAFTED'
+            ).length
+          }
+          activitiesCount={activities.length}
+          unreadNotificationsCount={notifications.filter((n) => !n.isRead).length}
+          onboardingStatusText={
+            onboarding?.completed
+              ? 'DONE'
+              : onboarding?.skipped
+              ? 'SKIP'
+              : `0${onboarding?.currentStep ?? 1}`
+          }
+        />
 
         <main id="main-workspace" className="ledger-sheet" tabIndex={-1}>
           {currentUser?.isDemo && (
@@ -3518,8 +3089,8 @@ export function App() {
             <section aria-labelledby="section-agent-title" data-testid="agent-workspace-panel">
               <div className="sheet-header">
                 <div>
-                  <h2 id="section-agent-title" className="sheet-title">
-                    Constrained Gemini invoice assistant
+                  <h2 id="section-agent-title" className="sheet-title" aria-label="Constrained Gemini invoice assistant">
+                    AI Assistant
                   </h2>
                   <p className="sheet-lead">
                     Prepare structured invoice drafts from natural language, resolve only stored clients, ask concise clarifications, and inspect authorized invoices. Model outputs are schema-validated and can never bypass human approval.
@@ -3781,8 +3352,8 @@ export function App() {
             <section aria-labelledby="section-invoices-title">
               <div className="sheet-header">
                 <div>
-                  <h2 id="section-invoices-title" className="sheet-title">
-                    Conventional invoices &amp; local draft ledger
+                  <h2 id="section-invoices-title" className="sheet-title" aria-label="Conventional invoices &amp; local draft ledger">
+                    Invoices
                   </h2>
                   <p className="sheet-lead">
                     Draft, validate, preview, and edit invoices without AI. Server recalculates all line totals, tax, and totals in integer minor units. Saving a draft does not send to PayPal.
@@ -3832,367 +3403,38 @@ export function App() {
               )}
 
               {invoiceFormMode !== 'closed' && (
-                <div>
-                  <form
-                    className="ledger-form"
-                    data-testid="invoice-draft-form"
-                    onSubmit={(e) => void handleSaveInvoiceDraft(e)}
-                    noValidate
-                  >
-                    <h3 style={{ marginTop: 0, marginBottom: '0.75rem' }} className="serif-document">
-                      {invoiceFormMode === 'edit'
-                        ? `Edit local invoice draft (${draftInvoiceNumber})`
-                        : 'Create local invoice draft (Non-AI conventional form)'}
-                    </h3>
-
-                    {invoiceFormError && (
-                      <div
-                        role="alert"
-                        data-testid="invoice-form-error"
-                        className="feedback-banner"
-                        data-tone="error"
-                      >
-                        {invoiceFormError}
-                      </div>
-                    )}
-
-                    <div className="form-grid">
-                      <div className="form-field">
-                        <label htmlFor="invoice-client-select" className="form-label">
-                          Client
-                        </label>
-                        <select
-                          id="invoice-client-select"
-                          className="form-select"
-                          data-testid="invoice-client-select"
-                          value={draftClientId}
-                          onChange={(e) => setDraftClientId(e.target.value)}
-                        >
-                          <option value="">Select client...</option>
-                          {clients.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.fullName} {c.companyName ? `(${c.companyName})` : ''} ΓÇö {c.email}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="form-field">
-                        <label htmlFor="invoice-number-input" className="form-label">
-                          Invoice number
-                        </label>
-                        <input
-                          id="invoice-number-input"
-                          type="text"
-                          className="form-input tabular-nums"
-                          data-testid="invoice-number-input"
-                          value={draftInvoiceNumber}
-                          onChange={(e) => setDraftInvoiceNumber(e.target.value)}
-                          placeholder="INV-2026-1002"
-                        />
-                      </div>
-
-                      <div className="form-field">
-                        <label htmlFor="invoice-currency-select" className="form-label">
-                          Currency (ISO-4217)
-                        </label>
-                        <select
-                          id="invoice-currency-select"
-                          className="form-select tabular-nums"
-                          data-testid="invoice-currency-select"
-                          value={draftCurrency}
-                          onChange={(e) => setDraftCurrency(e.target.value)}
-                        >
-                          {SUPPORTED_CURRENCIES.map((code) => (
-                            <option key={code} value={code}>
-                              {code}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="form-field">
-                        <label htmlFor="invoice-tax-input" className="form-label">
-                          Tax rate (%)
-                        </label>
-                        <input
-                          id="invoice-tax-input"
-                          type="text"
-                          className="form-input tabular-nums"
-                          data-testid="invoice-tax-input"
-                          value={draftTaxPercent}
-                          onChange={(e) => setDraftTaxPercent(e.target.value)}
-                          placeholder="0"
-                        />
-                      </div>
-
-                      <div className="form-field">
-                        <label htmlFor="invoice-issue-date-input" className="form-label">
-                          Issue date (YYYY-MM-DD)
-                        </label>
-                        <input
-                          id="invoice-issue-date-input"
-                          type="text"
-                          className="form-input tabular-nums"
-                          data-testid="invoice-issue-date-input"
-                          value={draftIssueDate}
-                          onChange={(e) => setDraftIssueDate(e.target.value)}
-                          placeholder="2026-10-31"
-                        />
-                      </div>
-
-                      <div className="form-field">
-                        <label htmlFor="invoice-due-date-input" className="form-label">
-                          Due date (YYYY-MM-DD)
-                        </label>
-                        <input
-                          id="invoice-due-date-input"
-                          type="text"
-                          className="form-input tabular-nums"
-                          data-testid="invoice-due-date-input"
-                          value={draftDueDate}
-                          onChange={(e) => setDraftDueDate(e.target.value)}
-                          placeholder="2026-11-14"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="line-items-section">
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          flexWrap: 'wrap',
-                          gap: '0.5rem',
-                          marginBottom: '0.5rem'
-                        }}
-                      >
-                        <span className="form-label">Line items</span>
-                        <button
-                          type="button"
-                          className="secondary-btn"
-                          data-testid="add-line-item-btn"
-                          onClick={handleAddDraftItem}
-                        >
-                          + Add line item
-                        </button>
-                      </div>
-
-                      {templates.length > 0 && (
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.5rem',
-                            marginBottom: '0.75rem',
-                            flexWrap: 'wrap'
-                          }}
-                        >
-                          <label
-                            htmlFor="template-preset-select"
-                            className="form-label"
-                            style={{ margin: 0, fontSize: '0.8125rem' }}
-                          >
-                            Template preset:
-                          </label>
-                          <select
-                            id="template-preset-select"
-                            data-testid="template-preset-select"
-                            className="form-select"
-                            style={{ maxWidth: '320px', padding: '0.3rem 0.5rem', fontSize: '0.8125rem' }}
-                            defaultValue=""
-                            onChange={(e) => {
-                              handleSelectTemplatePreset(e.target.value);
-                              e.target.value = '';
-                            }}
-                          >
-                            <option value="">-- Insert item from preset --</option>
-                            {templates.map((tmpl) => (
-                              <option key={tmpl.id} value={tmpl.id}>
-                                {tmpl.name} ({formatMoneyFromMinor(tmpl.unitPriceMinor, tmpl.currencyCode)})
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      )}
-
-                      {draftItems.map((item, idx) => {
-                        const previewLineMinor = previewCalc.itemLineMinors[idx];
-                        return (
-                          <div key={idx} className="line-item-row" data-testid={`draft-item-row-${idx}`}>
-                            <div className="form-field">
-                              <label htmlFor={`item-desc-${idx}`} className="form-label">
-                                Description #{idx + 1}
-                              </label>
-                              <input
-                                id={`item-desc-${idx}`}
-                                type="text"
-                                className="form-input"
-                                data-testid={`item-desc-${idx}`}
-                                value={item.description}
-                                onChange={(e) =>
-                                  handleUpdateDraftItem(idx, { description: e.target.value })
-                                }
-                                placeholder="Deliverable or service description"
-                              />
-                            </div>
-
-                            <div className="form-field">
-                              <label htmlFor={`item-qty-${idx}`} className="form-label">
-                                Qty
-                              </label>
-                              <input
-                                id={`item-qty-${idx}`}
-                                type="text"
-                                className="form-input tabular-nums"
-                                data-testid={`item-qty-${idx}`}
-                                value={item.quantity}
-                                onChange={(e) =>
-                                  handleUpdateDraftItem(idx, { quantity: e.target.value })
-                                }
-                              />
-                            </div>
-
-                            <div className="form-field">
-                              <label htmlFor={`item-price-${idx}`} className="form-label">
-                                Unit price ({draftCurrency})
-                              </label>
-                              <input
-                                id={`item-price-${idx}`}
-                                type="text"
-                                className="form-input tabular-nums"
-                                data-testid={`item-price-${idx}`}
-                                value={item.unitPriceDecimal}
-                                onChange={(e) =>
-                                  handleUpdateDraftItem(idx, { unitPriceDecimal: e.target.value })
-                                }
-                              />
-                            </div>
-
-                            <div className="form-field">
-                              <span className="form-label">Line preview</span>
-                              <div
-                                className="tabular-nums"
-                                data-testid={`item-line-preview-${idx}`}
-                                style={{ padding: '0.45rem 0', fontWeight: 600 }}
-                              >
-                                {previewLineMinor !== null
-                                  ? formatMoneyFromMinor(previewLineMinor, draftCurrency)
-                                  : 'Invalid'}
-                              </div>
-                            </div>
-
-                            <div>
-                              <button
-                                type="button"
-                                className="secondary-btn"
-                                data-testid={`remove-item-${idx}`}
-                                disabled={draftItems.length <= 1}
-                                onClick={() => handleRemoveDraftItem(idx)}
-                              >
-                                Remove
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    <div className="form-field" style={{ marginBottom: '1rem' }}>
-                      <label htmlFor="invoice-notes-input" className="form-label">
-                        Invoice notes / payment terms
-                      </label>
-                      <textarea
-                        id="invoice-notes-input"
-                        className="form-textarea"
-                        data-testid="invoice-notes-input"
-                        value={draftNotes}
-                        onChange={(e) => setDraftNotes(e.target.value)}
-                        placeholder="Optional scope notes or payment instructions"
-                      />
-                    </div>
-
-                    <div className="btn-row">
-                      <button
-                        type="submit"
-                        className="action-btn"
-                        data-testid="save-invoice-draft-btn"
-                        disabled={invoiceFormSubmitting}
-                      >
-                        {invoiceFormSubmitting
-                          ? 'Saving draft...'
-                          : invoiceFormMode === 'edit'
-                            ? 'Update local draft'
-                            : 'Save local draft'}
-                      </button>
-                      <button
-                        type="button"
-                        className="secondary-btn"
-                        data-testid="cancel-invoice-form-btn"
-                        onClick={() => {
-                          setInvoiceFormMode('closed');
-                          setInvoiceFormError(null);
-                        }}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </form>
-
-                  <aside
-                    className="paper-preview-sheet serif-document"
-                    aria-label="Live paper invoice preview"
-                    data-testid="invoice-paper-preview"
-                  >
-                    <div className="paper-preview-header">
-                      <div>
-                        <span className="approval-slip-highlight">
-                          BROWSER PREVIEW ONLY ΓÇö SERVER RECALCULATES ON SAVE
-                        </span>
-                        <h3 style={{ margin: '0.25rem 0' }}>
-                          Invoice Preview: {draftInvoiceNumber || 'Untitled Draft'}
-                        </h3>
-                        <p style={{ margin: 0, fontSize: '0.9rem' }}>
-                          Bill to:{' '}
-                          <strong>
-                            {previewClient
-                              ? `${previewClient.fullName}${
-                                  previewClient.companyName ? ` (${previewClient.companyName})` : ''
-                                }`
-                              : 'Unselected client'}
-                          </strong>
-                        </p>
-                      </div>
-                      <div className="tabular-nums" style={{ textAlign: 'right', fontSize: '0.9rem' }}>
-                        <div>Issue: {draftIssueDate || 'ΓÇö'}</div>
-                        <div>Due: {draftDueDate || 'ΓÇö'}</div>
-                        <div>Status: LOCAL DRAFT (Not Sent to PayPal)</div>
-                      </div>
-                    </div>
-
-                    <div className="totals-summary tabular-nums">
-                      <div className="totals-row">
-                        <span>Preview subtotal:</span>
-                        <span data-testid="preview-subtotal">
-                          {formatMoneyFromMinor(previewCalc.subtotalMinor, draftCurrency)}
-                        </span>
-                      </div>
-                      <div className="totals-row">
-                        <span>Preview tax ({draftTaxPercent || '0'}%):</span>
-                        <span data-testid="preview-tax">
-                          {formatMoneyFromMinor(previewCalc.taxMinor, draftCurrency)}
-                        </span>
-                      </div>
-                      <div className="totals-row totals-row-grand">
-                        <span>Preview total:</span>
-                        <span data-testid="preview-total">
-                          {formatMoneyFromMinor(previewCalc.totalMinor, draftCurrency)}
-                        </span>
-                      </div>
-                    </div>
-                  </aside>
-                </div>
+                <InvoiceDraftForm
+                  invoiceFormMode={invoiceFormMode}
+                  draftInvoiceNumber={draftInvoiceNumber}
+                  setDraftInvoiceNumber={setDraftInvoiceNumber}
+                  draftClientId={draftClientId}
+                  setDraftClientId={setDraftClientId}
+                  draftCurrency={draftCurrency}
+                  setDraftCurrency={setDraftCurrency}
+                  draftTaxPercent={draftTaxPercent}
+                  setDraftTaxPercent={setDraftTaxPercent}
+                  draftIssueDate={draftIssueDate}
+                  setDraftIssueDate={setDraftIssueDate}
+                  draftDueDate={draftDueDate}
+                  setDraftDueDate={setDraftDueDate}
+                  draftNotes={draftNotes}
+                  setDraftNotes={setDraftNotes}
+                  draftItems={draftItems}
+                  handleAddDraftItem={handleAddDraftItem}
+                  handleUpdateDraftItem={handleUpdateDraftItem}
+                  handleRemoveDraftItem={handleRemoveDraftItem}
+                  handleSelectTemplatePreset={handleSelectTemplatePreset}
+                  handleSaveInvoiceDraft={handleSaveInvoiceDraft}
+                  onCancel={() => {
+                    setInvoiceFormMode('closed');
+                    setInvoiceFormError(null);
+                  }}
+                  invoiceFormError={invoiceFormError}
+                  invoiceFormSubmitting={invoiceFormSubmitting}
+                  clients={clients}
+                  templates={templates}
+                  previewCalc={previewCalc}
+                />
               )}
 
                             {/* Stage 10: Invoices Filter Bar */}
@@ -4278,7 +3520,7 @@ export function App() {
                         <th scope="col">Invoice #</th>
                         <th scope="col">Client</th>
                         <th scope="col">Issue / Due</th>
-                        <th scope="col">Authoritative Total</th>
+                        <th scope="col">Total Amount</th>
                         <th scope="col">Local / Provider Status</th>
                         <th scope="col">Actions</th>
                       </tr>
@@ -4422,599 +3664,53 @@ export function App() {
               )}
 
               {activeAction && activeSlip && (
-                <section
-                  className="approval-slip-sheet"
-                  aria-label="Paper approval slip"
-                  data-testid="approval-slip-panel"
-                >
-                  <div className="approval-slip-top">
-                    <div>
-                      <span className="approval-slip-highlight">
-                        AUTHORITATIVE HUMAN APPROVAL SLIP
-                      </span>
-                      <h3
-                        style={{ margin: '0.25rem 0' }}
-                        className="serif-document"
-                        data-testid="slip-invoice-heading"
-                      >
-                        Approval Slip for Invoice {activeSlip.invoiceNumber}
-                      </h3>
-                      <p style={{ margin: 0, fontSize: '0.9rem' }} data-testid="slip-client-summary">
-                        Client: <strong>{activeSlip.clientFullName}</strong>
-                        {activeSlip.clientCompanyName ? ` (${activeSlip.clientCompanyName})` : ''} •{' '}
-                        {activeSlip.clientEmail}
-                      </p>
-                      <p
-                        style={{ margin: '0.25rem 0 0 0', fontSize: '0.82rem', color: 'var(--ink-muted)' }}
-                        className="tabular-nums"
-                      >
-                        Action ID: <code data-testid="slip-action-id">{activeAction.id}</code> | Fresh until:{' '}
-                        <span data-testid="slip-expires-at">{activeAction.expiresAt}</span>
-                      </p>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div
-                        className="approval-stamp"
-                        data-state={activeAction.state}
-                        data-testid="approval-slip-state"
-                      >
-                        {activeAction.state}
-                      </div>
-                    </div>
-                  </div>
-
-                  {slipFeedback && (
-                    <div
-                      role="status"
-                      data-testid="slip-feedback-banner"
-                      className="feedback-banner"
-                      data-tone="success"
-                    >
-                      {slipFeedback}
-                    </div>
-                  )}
-
-                  {slipError && (
-                    <div
-                      role="alert"
-                      data-testid="slip-error-alert"
-                      className="feedback-banner"
-                      data-tone="error"
-                    >
-                      {slipError}
-                    </div>
-                  )}
-
-                  <div className="form-grid tabular-nums" style={{ marginBottom: '1rem' }}>
-                    <div>
-                      <strong>Currency:</strong>{' '}
-                      <span data-testid="slip-currency">{activeSlip.currencyCode}</span>
-                    </div>
-                    <div>
-                      <strong>Issue date:</strong>{' '}
-                      <span data-testid="slip-issue-date">{activeSlip.issueDate}</span>
-                    </div>
-                    <div>
-                      <strong>Due date:</strong>{' '}
-                      <span data-testid="slip-due-date">{activeSlip.dueDate}</span>
-                    </div>
-                    <div>
-                      <strong>Provider target:</strong>{' '}
-                      <span data-testid="slip-provider-mode">
-                        {activeSlip.providerMode === 'sandbox' ? 'PayPal Sandbox' : 'Local Mock Adapter'}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="ledger-table-wrap">
-                    <table
-                      className="ledger-table serif-document"
-                      aria-label="Approval slip line items"
-                      data-testid="slip-items-table"
-                    >
-                      <thead>
-                        <tr>
-                          <th scope="col">#</th>
-                          <th scope="col">Description</th>
-                          <th scope="col">Qty</th>
-                          <th scope="col">Unit Price</th>
-                          <th scope="col">Line Total</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {activeSlip.items.map((it, idx) => (
-                          <tr key={idx}>
-                            <td className="tabular-nums">{idx + 1}</td>
-                            <td>{it.description}</td>
-                            <td className="tabular-nums">{it.quantity}</td>
-                            <td className="tabular-nums">
-                              {formatMoneyFromMinor(it.unitAmountMinor, activeSlip.currencyCode)}
-                            </td>
-                            <td className="tabular-nums">
-                              <strong>
-                                {formatMoneyFromMinor(it.lineTotalMinor, activeSlip.currencyCode)}
-                              </strong>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <div className="totals-summary tabular-nums serif-document">
-                    <div className="totals-row">
-                      <span>Subtotal:</span>
-                      <span data-testid="slip-subtotal">
-                        {formatMoneyFromMinor(activeSlip.subtotalMinor, activeSlip.currencyCode)}
-                      </span>
-                    </div>
-                    <div className="totals-row">
-                      <span>Tax ({(activeSlip.taxRateBps / 100).toFixed(2)}%):</span>
-                      <span data-testid="slip-tax">
-                        {formatMoneyFromMinor(activeSlip.taxMinor, activeSlip.currencyCode)}
-                      </span>
-                    </div>
-                    <div className="totals-row totals-row-grand">
-                      <span>Authoritative Total to Send:</span>
-                      <span data-testid="slip-total">
-                        {formatMoneyFromMinor(activeSlip.totalMinor, activeSlip.currencyCode)}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="slip-warning-box" data-testid="slip-warnings-box">
-                    <strong style={{ display: 'block', marginBottom: '0.35rem', fontSize: '0.85rem' }}>
-                      Safety &amp; Review Warnings
-                    </strong>
-                    <ul
-                      style={{ margin: 0, paddingLeft: '1.25rem', fontSize: '0.88rem' }}
-                      data-testid="slip-warnings-list"
-                    >
-                      {activeSlip.warnings.map((w, idx) => (
-                        <li key={idx}>{w}</li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  <div className="slip-consequence-box" data-testid="slip-what-will-happen">
-                    <strong>What will happen upon approval &amp; execution:</strong>{' '}
-                    {activeSlip.whatWillHappen}
-                  </div>
-
-                  <div className="btn-row" style={{ marginTop: '1rem' }}>
-                    {activeAction.state !== 'EXECUTED' && (
-                      <button
-                        type="button"
-                        className="secondary-btn"
-                        data-testid="slip-edit-draft-btn"
-                        disabled={slipLoading}
-                        onClick={() => {
-                          const inv =
-                            invoices.find((i) => i.id === activeSlip.invoiceId) ??
-                            (selectedInvoice?.id === activeSlip.invoiceId ? selectedInvoice : null);
-                          if (inv) {
-                            setActiveAction(null);
-                            setActiveSlip(null);
-                            openEditInvoiceForm(inv);
-                          }
-                        }}
-                      >
-                        Edit draft
-                      </button>
-                    )}
-
-                    {(activeAction.state === 'PENDING_APPROVAL' ||
-                      activeAction.state === 'APPROVED') && (
-                      <button
-                        type="button"
-                        className="danger-btn"
-                        data-testid="slip-reject-btn"
-                        disabled={slipLoading}
-                        onClick={() => void handleRejectSlip()}
-                      >
-                        Reject / discard slip
-                      </button>
-                    )}
-
-                    {activeAction.state === 'PENDING_APPROVAL' && (
-                      <button
-                        type="button"
-                        className="action-btn"
-                        data-testid="slip-approve-btn"
-                        disabled={slipLoading}
-                        onClick={() => void handleApproveSlip()}
-                      >
-                        {slipLoading ? 'Processing...' : 'Approve slip'}
-                      </button>
-                    )}
-
-                    {activeAction.state === 'APPROVED' && (
-                      <button
-                        type="button"
-                        className="action-btn"
-                        data-testid="slip-execute-btn"
-                        disabled={slipLoading}
-                        onClick={() => void handleExecuteApprovedSlip()}
-                      >
-                        {slipLoading ? 'Executing send...' : 'Execute approved send'}
-                      </button>
-                    )}
-
-                    <button
-                      type="button"
-                      className="secondary-btn"
-                      data-testid="slip-close-btn"
-                      onClick={() => {
-                        setActiveAction(null);
-                        setActiveSlip(null);
-                        setSlipError(null);
-                        setSlipFeedback(null);
-                      }}
-                    >
-                      Close slip
-                    </button>
-                  </div>
-                </section>
+                <ApprovalSlip
+                  activeAction={activeAction}
+                  activeSlip={activeSlip}
+                  slipLoading={slipLoading}
+                  slipFeedback={slipFeedback}
+                  slipError={slipError}
+                  onEditDraft={() => {
+                    const inv =
+                      invoices.find((i) => i.id === activeSlip.invoiceId) ??
+                      (selectedInvoice?.id === activeSlip.invoiceId ? selectedInvoice : null);
+                    if (inv) {
+                      setActiveAction(null);
+                      setActiveSlip(null);
+                      openEditInvoiceForm(inv);
+                    }
+                  }}
+                  onRejectSlip={handleRejectSlip}
+                  onApproveSlip={handleApproveSlip}
+                  onExecuteApprovedSlip={handleExecuteApprovedSlip}
+                  onClose={() => {
+                    setActiveAction(null);
+                    setActiveSlip(null);
+                    setSlipError(null);
+                    setSlipFeedback(null);
+                  }}
+                />
               )}
 
               {selectedInvoice && (
-                <section
-                  className="paper-preview-sheet"
-                  aria-label="Persisted invoice detail"
-                  data-testid="invoice-detail-panel"
-                >
-                  {/* Stage 10: Document Lifecycle Timeline */}
-                  <div
-                    className="timeline-strip"
-                    data-testid="invoice-timeline"
-                    style={{
-                      display: 'flex',
-                      flexWrap: 'wrap',
-                      gap: '1.5rem',
-                      padding: '0.75rem 1rem',
-                      background: 'var(--sheet-2)',
-                      border: '1px solid var(--rule)',
-                      marginBottom: '1rem',
-                      fontSize: '0.875rem'
-                    }}
-                  >
-                    <div className="timeline-step" data-done="true">
-                      &check; <strong>Created:</strong> {selectedInvoice.createdAt.slice(0, 10)}
-                    </div>
-                    <div
-                      className="timeline-step"
-                      data-done={selectedInvoice.localStatus === 'SENT' || !!selectedInvoice.providerInvoiceId}
-                    >
-                      {selectedInvoice.localStatus === 'SENT' || selectedInvoice.providerInvoiceId ? '✓' : '○'}{' '}
-                      <strong>Sent:</strong> {selectedInvoice.providerInvoiceId ? 'PayPal' : 'Pending'}
-                    </div>
-                    <div
-                      className="timeline-step"
-                      data-done={selectedInvoice.providerStatus === 'VIEWED' || selectedInvoice.providerStatus === 'PAID'}
-                    >
-                      {selectedInvoice.providerStatus === 'VIEWED' || selectedInvoice.providerStatus === 'PAID' ? '✓' : '○'}{' '}
-                      <strong>Viewed:</strong> {selectedInvoice.providerStatus === 'VIEWED' ? 'Yes' : 'Awaiting'}
-                    </div>
-                    <div
-                      className="timeline-step"
-                      data-done={selectedInvoice.providerStatus === 'PAID'}
-                    >
-                      {selectedInvoice.providerStatus === 'PAID' ? '✓' : '○'}{' '}
-                      <strong>Paid:</strong> {selectedInvoice.providerStatus === 'PAID' ? 'Settled' : 'Unpaid'}
-                    </div>
-                  </div>
-
-                  <div className="paper-preview-header">
-                    <div>
-                      <span className="approval-slip-highlight">
-                        INVOICE RECORD &amp; TIMELINE
-                      </span>
-                      <h3 style={{ margin: '0.25rem 0' }} className="serif-document">
-                        Invoice {selectedInvoice.invoiceNumber}
-                      </h3>
-                      <p style={{ margin: 0, fontSize: '0.9rem' }}>
-                        Client:{' '}
-                        <strong data-testid="detail-invoice-client">
-                          {selectedInvoiceClient
-                            ? `${selectedInvoiceClient.fullName} (${selectedInvoiceClient.email})`
-                            : selectedInvoice.clientId}
-                        </strong>
-                      </p>
-                    </div>
-                    <div className="btn-row">
-                      <button
-                        type="button"
-                        className="secondary-btn"
-                        data-testid="back-to-invoices-btn"
-                        onClick={() => setSelectedInvoice(null)}
-                      >
-                        &larr; Back to invoices
-                      </button>
-                      <button
-                        type="button"
-                        className="secondary-btn"
-                        data-testid="duplicate-invoice-btn"
-                        onClick={() => handleDuplicateInvoice(selectedInvoice)}
-                      >
-                        Duplicate draft
-                      </button>
-                      <button
-                        type="button"
-                        className="secondary-btn"
-                        data-testid="print-invoice-btn"
-                        onClick={() => window.print()}
-                      >
-                        Print / PDF
-                      </button>
-                      {selectedInvoice.providerInvoiceId && (
-                        <button
-                          type="button"
-                          className="action-btn"
-                          data-testid="detail-refresh-provider-btn"
-                          disabled={providerRefreshing}
-                          onClick={() => void handleRefreshProviderStatus(selectedInvoice.id)}
-                        >
-                          {providerRefreshing ? 'Refreshing...' : 'Refresh PayPal status'}
-                        </button>
-                      )}
-                      {selectedInvoice.localStatus !== 'SENT' && !selectedInvoice.providerInvoiceId && (
-                        <>
-                          <button
-                            type="button"
-                            className="secondary-btn"
-                            data-testid="detail-edit-draft-btn"
-                            onClick={() => openEditInvoiceForm(selectedInvoice)}
-                          >
-                            Edit draft
-                          </button>
-                          <button
-                            type="button"
-                            className="action-btn"
-                            data-testid="detail-prepare-approval-btn"
-                            disabled={slipLoading}
-                            onClick={() => void handleRequestApprovalSlip(selectedInvoice.id)}
-                          >
-                            Review approval slip
-                          </button>
-                        </>
-                      )}
-                      {selectedInvoice.providerStatus !== 'PAID' &&
-                        selectedInvoice.localStatus !== 'CANCELLED' && (
-                          <button
-                            type="button"
-                            className="action-btn"
-                            data-testid="invoice-remind-btn"
-                            onClick={() => handleOpenReminderDraftForInvoice(selectedInvoice)}
-                          >
-                            Draft reminder
-                          </button>
-                        )}
-                      <button
-                        type="button"
-                        className="secondary-btn"
-                        data-testid="close-invoice-detail-btn"
-                        onClick={() => setSelectedInvoice(null)}
-                      >
-                        Close detail
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="form-grid tabular-nums" style={{ marginBottom: '1rem' }}>
-                    <div>
-                      <strong>Issue date:</strong>{' '}
-                      <span data-testid="detail-issue-date">{selectedInvoice.issueDate}</span>
-                    </div>
-                    <div>
-                      <strong>Due date:</strong>{' '}
-                      <span data-testid="detail-due-date">{selectedInvoice.dueDate}</span>
-                    </div>
-                    <div>
-                      <strong>Local status:</strong>{' '}
-                      <span data-testid="detail-local-status">{selectedInvoice.localStatus}</span>
-                    </div>
-                    <div>
-                      <strong>Provider status:</strong>{' '}
-                      <span data-testid="detail-provider-status">{selectedInvoice.providerStatus}</span>
-                    </div>
-                    {selectedInvoice.providerInvoiceId && (
-                      <div>
-                        <strong>Provider invoice ID:</strong>{' '}
-                        <code data-testid="detail-provider-invoice-id">
-                          {selectedInvoice.providerInvoiceId}
-                        </code>
-                      </div>
-                    )}
-                    {selectedInvoice.lastProviderSyncAt && (
-                      <div>
-                        <strong>Last provider sync:</strong>{' '}
-                        <span data-testid="detail-provider-sync-at">
-                          {selectedInvoice.lastProviderSyncAt}
-                        </span>
-                      </div>
-                    )}
-                    {selectedInvoice.providerRecipientViewUrl && (
-                      <div style={{ gridColumn: '1 / -1' }}>
-                        <strong>Recipient payment link:</strong>{' '}
-                        <a
-                          href={selectedInvoice.providerRecipientViewUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          data-testid="detail-recipient-view-url"
-                        >
-                          {selectedInvoice.providerRecipientViewUrl}
-                        </a>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="ledger-table-wrap">
-                    <table className="ledger-table" aria-label="Invoice line items detail">
-                      <thead>
-                        <tr>
-                          <th scope="col">#</th>
-                          <th scope="col">Description</th>
-                          <th scope="col">Qty</th>
-                          <th scope="col">Unit Price</th>
-                          <th scope="col">Line Total</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {selectedInvoice.items.map((it, idx) => (
-                          <tr key={it.id}>
-                            <td className="tabular-nums">{idx + 1}</td>
-                            <td>{it.description}</td>
-                            <td className="tabular-nums">{it.quantity}</td>
-                            <td className="tabular-nums">
-                              {formatMoneyFromMinor(it.unitAmountMinor, it.currencyCode)}
-                            </td>
-                            <td className="tabular-nums">
-                              <strong>
-                                {formatMoneyFromMinor(it.lineTotalMinor, it.currencyCode)}
-                              </strong>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {selectedInvoice.notes && (
-                    <p style={{ marginTop: '0.75rem', fontSize: '0.9rem' }} data-testid="detail-invoice-notes">
-                      <strong>Notes:</strong> {selectedInvoice.notes}
-                    </p>
-                  )}
-
-                  <div className="totals-summary tabular-nums">
-                    <div className="totals-row">
-                      <span>Authoritative subtotal:</span>
-                      <span data-testid="detail-invoice-subtotal">
-                        {formatMoneyFromMinor(
-                          selectedInvoice.subtotalMinor,
-                          selectedInvoice.currencyCode
-                        )}
-                      </span>
-                    </div>
-                    <div className="totals-row">
-                      <span>
-                        Authoritative tax ({(selectedInvoice.taxRateBps / 100).toFixed(2)}%):
-                      </span>
-                      <span data-testid="detail-invoice-tax">
-                        {formatMoneyFromMinor(
-                          selectedInvoice.taxMinor,
-                          selectedInvoice.currencyCode
-                        )}
-                      </span>
-                    </div>
-                    <div className="totals-row totals-row-grand">
-                      <span>Authoritative total:</span>
-                      <span data-testid="detail-invoice-total">
-                        {formatMoneyFromMinor(
-                          selectedInvoice.totalMinor,
-                          selectedInvoice.currencyCode
-                        )}
-                      </span>
-                    </div>
-
-                    {(selectedInvoice.paidAmountMinor ?? 0) > 0 && (
-                      <div className="totals-row">
-                        <span>Paid amount:</span>
-                        <span data-testid="detail-invoice-paid" style={{ color: 'var(--paid)' }}>
-                          {formatMoneyFromMinor(
-                            selectedInvoice.paidAmountMinor ?? 0,
-                            selectedInvoice.currencyCode
-                          )}
-                        </span>
-                      </div>
-                    )}
-
-                    <div className="totals-row">
-                      <span>Outstanding balance:</span>
-                      <span
-                        data-testid="detail-invoice-outstanding"
-                        style={{
-                          fontWeight: 'bold',
-                          color:
-                            selectedInvoice.providerStatus === 'PAID'
-                              ? 'var(--paid)'
-                              : 'var(--primary)'
-                        }}
-                      >
-                        {formatMoneyFromMinor(
-                          selectedInvoice.providerStatus === 'PAID'
-                            ? 0
-                            : Math.max(
-                                0,
-                                selectedInvoice.totalMinor - (selectedInvoice.paidAmountMinor ?? 0)
-                              ),
-                          selectedInvoice.currencyCode
-                        )}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Stage 12: Record Manual / Partial Payment */}
-                  {selectedInvoice.providerStatus !== 'PAID' && (
-                    <div
-                      style={{
-                        marginTop: '1.25rem',
-                        padding: '1rem',
-                        background: 'var(--sheet-2)',
-                        border: '1px solid var(--rule)',
-                        borderRadius: '4px'
-                      }}
-                      data-testid="partial-payment-section"
-                    >
-                      <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.95rem' }}>
-                        Record Manual or Partial Payment
-                      </h4>
-                      <p style={{ margin: '0 0 0.75rem 0', fontSize: '0.85rem', color: 'var(--ink-muted)' }}>
-                        Enter the amount received in {selectedInvoice.currencyCode} (major units, e.g. 250.00). It will be validated server-side and recorded in minor units.
-                      </p>
-                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                        <input
-                          type="text"
-                          className="ledger-input"
-                          data-testid="record-partial-payment-input"
-                          placeholder="e.g. 250.00"
-                          value={partialPaymentAmount}
-                          onChange={(e) => setPartialPaymentAmount(e.target.value)}
-                          style={{ maxWidth: '160px' }}
-                        />
-                        <button
-                          type="button"
-                          className="action-btn"
-                          data-testid="record-partial-payment-btn"
-                          disabled={partialPaymentSubmitting || !partialPaymentAmount.trim()}
-                          onClick={() =>
-                            void handleRecordPartialPayment(
-                              selectedInvoice.id,
-                              selectedInvoice.currencyCode
-                            )
-                          }
-                        >
-                          {partialPaymentSubmitting ? 'Recording...' : 'Record Payment'}
-                        </button>
-                      </div>
-                      {partialPaymentError && (
-                        <p
-                          style={{ color: 'var(--late)', fontSize: '0.85rem', margin: '0.5rem 0 0 0' }}
-                          data-testid="partial-payment-error"
-                        >
-                          {partialPaymentError}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                  {partialPaymentSuccess && (
-                    <p
-                      style={{ color: 'var(--paid)', fontSize: '0.85rem', margin: '0.75rem 0 0 0' }}
-                      data-testid="partial-payment-success"
-                    >
-                      {partialPaymentSuccess}
-                    </p>
-                  )}
-                </section>
+                <InvoiceDetailView
+                  selectedInvoice={selectedInvoice}
+                  selectedInvoiceClient={selectedInvoiceClient}
+                  onClose={() => setSelectedInvoice(null)}
+                  onDuplicate={handleDuplicateInvoice}
+                  onEditDraft={openEditInvoiceForm}
+                  onRequestApprovalSlip={handleRequestApprovalSlip}
+                  onRefreshProviderStatus={handleRefreshProviderStatus}
+                  onOpenReminderDraft={handleOpenReminderDraftForInvoice}
+                  providerRefreshing={providerRefreshing}
+                  slipLoading={slipLoading}
+                  partialPaymentAmount={partialPaymentAmount}
+                  setPartialPaymentAmount={setPartialPaymentAmount}
+                  partialPaymentSubmitting={partialPaymentSubmitting}
+                  partialPaymentError={partialPaymentError}
+                  partialPaymentSuccess={partialPaymentSuccess}
+                  handleRecordPartialPayment={handleRecordPartialPayment}
+                />
               )}
             </section>
           )}
@@ -5023,8 +3719,8 @@ export function App() {
             <section aria-labelledby="section-clients-title">
               <div className="sheet-header">
                 <div>
-                  <h2 id="section-clients-title" className="sheet-title">
-                    Clients directory &amp; profile management
+                  <h2 id="section-clients-title" className="sheet-title" aria-label="Clients directory &amp; profile management">
+                    Clients
                   </h2>
                   <p className="sheet-lead">
                     Create, inspect, and edit owner-scoped client profiles. Every invoice draft links to a verified client record in your workspace.
@@ -5248,7 +3944,7 @@ export function App() {
                           <td>
                             <strong>{client.fullName}</strong>
                           </td>
-                          <td>{client.companyName || 'ΓÇö'}</td>
+                          <td>{client.companyName || '—'}</td>
                           <td>{client.email}</td>
                           <td className="tabular-nums">{client.defaultCurrency}</td>
                           <td>
@@ -5287,135 +3983,18 @@ export function App() {
               )}
 
               {selectedClient && (
-                <section
-                  className="paper-preview-sheet"
-                  aria-label="Client profile detail"
-                  data-testid="client-detail-panel"
-                >
-                  <div className="paper-preview-header">
-                    <div>
-                      <span className="approval-slip-highlight">CLIENT PROFILE RECORD</span>
-                      <h3
-                        style={{ margin: '0.25rem 0' }}
-                        className="serif-document"
-                        data-testid="detail-client-name"
-                      >
-                        {selectedClient.fullName}
-                      </h3>
-                      <p style={{ margin: 0, fontSize: '0.9rem' }} data-testid="detail-client-meta">
-                        {selectedClient.companyName ? `${selectedClient.companyName} ΓÇó ` : ''}
-                        {selectedClient.email} ΓÇó Default Currency: {selectedClient.defaultCurrency}
-                      </p>
-                      {/* Page 18: Grounded Client Financial Metrics */}
-                      {(() => {
-                        const clientInvs = invoices.filter((i) => i.clientId === selectedClient.id);
-                        const billed = clientInvs
-                          .filter((i) => i.localStatus !== 'CANCELLED')
-                          .reduce((sum, i) => sum + i.totalMinor, 0);
-                        const paid = clientInvs
-                          .filter((i) => i.providerStatus === 'PAID')
-                          .reduce((sum, i) => sum + i.totalMinor, 0);
-                        const outstanding = billed - paid;
-
-                        const todayStr = new Date().toISOString().slice(0, 10);
-                        const hasLate = clientInvs.some(
-                          (i) => i.dueDate < todayStr && i.localStatus !== 'DRAFT' && i.providerStatus !== 'PAID'
-                        );
-                        const reliability =
-                          clientInvs.length === 0
-                            ? 'New client'
-                            : hasLate
-                            ? 'Sometimes late'
-                            : 'Pays on time';
-
-                        return (
-                          <div style={{ marginTop: '0.75rem', display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
-                            <span
-                              className="status-pill"
-                              data-testid="client-reliability-badge"
-                              data-tone={reliability === 'Pays on time' ? 'paid' : reliability === 'Sometimes late' ? 'late' : 'caution'}
-                            >
-                              Reliability: {reliability}
-                            </span>
-                            <span className="tabular-nums" data-testid="client-metric-billed" style={{ fontSize: '0.875rem' }}>
-                              Total billed: <strong>{formatMoneyFromMinor(billed, selectedClient.defaultCurrency)}</strong>
-                            </span>
-                            <span className="tabular-nums" data-testid="client-metric-paid" style={{ fontSize: '0.875rem' }}>
-                              Total paid: <strong>{formatMoneyFromMinor(paid, selectedClient.defaultCurrency)}</strong>
-                            </span>
-                            <span className="tabular-nums" data-testid="client-metric-outstanding" style={{ fontSize: '0.875rem' }}>
-                              Outstanding: <strong>{formatMoneyFromMinor(outstanding, selectedClient.defaultCurrency)}</strong>
-                            </span>
-                          </div>
-                        );
-                      })()}
-                    </div>
-                    <div className="btn-row">
-                      <button
-                        type="button"
-                        className="secondary-btn"
-                        data-testid="back-to-clients-btn"
-                        onClick={() => setSelectedClient(null)}
-                      >
-                        &larr; Back to clients
-                      </button>
-                      <button
-                        type="button"
-                        className="secondary-btn"
-                        data-testid="detail-edit-client-btn"
-                        onClick={() => openEditClientForm(selectedClient)}
-                      >
-                        Edit client
-                      </button>
-                      <button
-                        type="button"
-                        className="action-btn"
-                        data-testid="client-draft-invoice-btn"
-                        onClick={() => {
-                          setActiveSection('invoices');
-                          openCreateInvoiceForm(selectedClient.id);
-                        }}
-                      >
-                        Draft new invoice
-                      </button>
-                      <button
-                        type="button"
-                        className="action-btn"
-                        data-testid="draft-for-client-btn"
-                        onClick={() => {
-                          setActiveSection('invoices');
-                          openCreateInvoiceForm(selectedClient.id);
-                        }}
-                      >
-                        Draft invoice for client
-                      </button>
-                    </div>
-                  </div>
-
-                  {selectedClient.notes && (
-                    <p style={{ margin: '0 0 0.75rem 0', fontSize: '0.9rem' }} data-testid="detail-client-notes">
-                      <strong>Notes:</strong> {selectedClient.notes}
-                    </p>
-                  )}
-
-                  <h4 style={{ margin: '0.75rem 0 0.5rem 0', fontSize: '0.9rem' }}>
-                    Invoices for {selectedClient.fullName} ({selectedClientInvoices.length})
-                  </h4>
-                  {selectedClientInvoices.length === 0 ? (
-                    <p style={{ margin: 0, color: 'var(--ink-muted)', fontSize: '0.875rem' }}>
-                      No invoices recorded for this client yet.
-                    </p>
-                  ) : (
-                    <ul style={{ margin: 0, paddingLeft: '1.25rem', fontSize: '0.9rem' }}>
-                      {selectedClientInvoices.map((inv) => (
-                        <li key={inv.id} className="tabular-nums">
-                          <strong>{inv.invoiceNumber}</strong> ΓÇö{' '}
-                          {formatMoneyFromMinor(inv.totalMinor, inv.currencyCode)} ({inv.localStatus})
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </section>
+                <ClientDetailView
+                  selectedClient={selectedClient}
+                  invoices={invoices}
+                  selectedClientInvoices={selectedClientInvoices}
+                  formatMoneyFromMinor={formatMoneyFromMinor}
+                  onBack={() => setSelectedClient(null)}
+                  onEdit={openEditClientForm}
+                  onDraftInvoice={(clientId) => {
+                    setActiveSection('invoices');
+                    openCreateInvoiceForm(clientId);
+                  }}
+                />
               )}
             </section>
           )}
@@ -5424,8 +4003,8 @@ export function App() {
             <section aria-labelledby="section-reminders-title">
               <div className="sheet-header">
                 <div>
-                  <h2 id="section-reminders-title" className="sheet-title">
-                    Reminders &amp; payment follow-ups
+                  <h2 id="section-reminders-title" className="sheet-title" aria-label="Reminders &amp; payment follow-ups">
+                    Payment Reminders
                   </h2>
                   <p className="sheet-lead">
                     Client-aware reminder drafts matching payment history (polite, firm, final notice). Explicit approval required before delivery. Real scheduling and observable execution.
@@ -5821,8 +4400,8 @@ export function App() {
             <section aria-labelledby="section-activity-title">
               <div className="sheet-header">
                 <div>
-                  <h2 id="section-activity-title" className="sheet-title">
-                    Activity &amp; approval audit log
+                  <h2 id="section-activity-title" className="sheet-title" aria-label="Activity &amp; approval audit log">
+                    Activity Log
                   </h2>
                   <p className="sheet-lead">
                     Append-oriented audit trail of draft mutations, approval slip proposals, approvals, rejections, stale/over-limit blocks, and provider execution transitions.
@@ -5951,7 +4530,7 @@ export function App() {
                           </td>
                           <td className="tabular-nums">{act.actorType}</td>
                           <td className="tabular-nums" style={{ fontSize: '0.82rem' }}>
-                            {act.entityType} ({act.entityId}) ΓÇö {act.result}
+                            {act.entityType} ({act.entityId}) — {act.result}
                           </td>
                         </tr>
                       ))}
@@ -5967,8 +4546,8 @@ export function App() {
             <section aria-labelledby="section-notifications-title">
               <div className="sheet-header">
                 <div>
-                  <h2 id="section-notifications-title" className="sheet-title">
-                    Notifications &amp; system alerts
+                  <h2 id="section-notifications-title" className="sheet-title" aria-label="Notifications &amp; system alerts">
+                    Notifications
                   </h2>
                   <p className="sheet-lead">
                     Real-time operational alerts for invoice views, payments, approval requests, and sandbox integration updates.
@@ -6076,8 +4655,8 @@ export function App() {
             <section aria-labelledby="section-settings-title">
               <div className="sheet-header">
                 <div>
-                  <h2 id="section-settings-title" className="sheet-title">
-                    Workspace settings &amp; preferences
+                  <h2 id="section-settings-title" className="sheet-title" aria-label="Workspace settings &amp; preferences">
+                    Workspace Settings
                   </h2>
                   <p className="sheet-lead">
                     Manage business details, PayPal Sandbox integration, agent safety limits, theme appearance, and export workspace data.
@@ -7548,487 +6127,54 @@ export function App() {
         </main>
       </div>
 
-      <footer className="shell-footer">
-        <div
-          className="shell-footer-inner"
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            gap: '0.5rem'
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', fontSize: '0.8125rem' }}>
-            <span>InvoicePilot &copy; 2026 — Financial Workspace for Freelancers</span>
-            <span style={{ color: 'var(--rule)' }}>•</span>
-            <button
-              type="button"
-              className="footer-link-btn"
-              style={{
-                background: 'none',
-                border: 'none',
-                color: 'var(--ink-muted)',
-                cursor: 'pointer',
-                padding: 0,
-                textDecoration: 'underline'
-              }}
-              onClick={() => setActiveSection('help')}
-            >
-              Help &amp; FAQ
-            </button>
-            <button
-              type="button"
-              className="footer-link-btn"
-              style={{
-                background: 'none',
-                border: 'none',
-                color: 'var(--ink-muted)',
-                cursor: 'pointer',
-                padding: 0,
-                textDecoration: 'underline'
-              }}
-              onClick={() => setActiveSection('policies')}
-            >
-              Legal &amp; Policies
-            </button>
-          </div>
+      <Footer
+        setActiveSection={setActiveSection}
+        health={health}
+        healthLoading={healthLoading}
+        fetchHealthStatus={fetchHealthStatus}
+      />
 
-          <div
-            className="footer-status-strip"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.65rem',
-              flexWrap: 'wrap',
-              fontSize: '0.78rem',
-              color: 'var(--ink-muted)'
-            }}
-          >
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
-              <span
-                style={{
-                  width: '6px',
-                  height: '6px',
-                  borderRadius: '50%',
-                  backgroundColor: health?.status === 'ok' ? 'var(--paid)' : 'var(--caution)'
-                }}
-              />
-              <span className="tabular-nums" data-testid="health-status-value">
-                {healthLoading
-                  ? 'Loading...'
-                  : health
-                  ? `${health.service} (${health.stage})`
-                  : 'Unavailable'}
-              </span>
-            </span>
-            <span style={{ color: 'var(--rule)' }}>|</span>
-            <span data-testid="health-mode-value" style={{ fontWeight: 500 }}>
-              {health?.modeLabel ?? 'PayPal Sandbox Mode (No Live Money)'}
-            </span>
-            <span style={{ color: 'var(--rule)' }}>|</span>
-            <button
-              type="button"
-              className="footer-link-btn"
-              data-testid="refresh-health-btn"
-              disabled={healthLoading}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: 'var(--primary)',
-                cursor: 'pointer',
-                padding: 0,
-                fontSize: '0.78rem'
-              }}
-              onClick={() => void fetchHealthStatus()}
-            >
-              {healthLoading ? 'Checking...' : 'Check Status'}
-            </button>
-            <span style={{ color: 'var(--rule)' }}>|</span>
-            <button
-              type="button"
-              className="footer-link-btn"
-              data-testid="nav-tokens"
-              style={{
-                background: 'none',
-                border: 'none',
-                color: 'var(--ink-muted)',
-                cursor: 'pointer',
-                padding: 0,
-                fontSize: '0.78rem'
-              }}
-              onClick={() => setActiveSection('tokens')}
-            >
-              Design Tokens
-            </button>
-            <span style={{ color: 'var(--rule)' }}>|</span>
-            <button
-              type="button"
-              className="footer-link-btn"
-              data-testid="nav-roadmap"
-              style={{
-                background: 'none',
-                border: 'none',
-                color: 'var(--ink-muted)',
-                cursor: 'pointer',
-                padding: 0,
-                fontSize: '0.78rem'
-              }}
-              onClick={() => setActiveSection('roadmap')}
-            >
-              Verification Ledger
-            </button>
-          </div>
-        </div>
-      </footer>
+      <ReminderModal
+        isOpen={reminderDraftModalOpen}
+        onClose={() => setReminderDraftModalOpen(false)}
+        reminderDraftError={reminderDraftError}
+        reminderFeedback={reminderFeedback}
+        reminderTargetInvoice={reminderTargetInvoice}
+        invoices={invoices}
+        onSelectTargetInvoice={handleOpenReminderDraftForInvoice}
+        reminderTone={reminderTone}
+        setReminderTone={setReminderTone}
+        reminderScheduledDate={reminderScheduledDate}
+        setReminderScheduledDate={setReminderScheduledDate}
+        reminderNotes={reminderNotes}
+        setReminderNotes={setReminderNotes}
+        reminderDraftLoading={reminderDraftLoading}
+        handleGenerateReminderDraft={handleGenerateReminderDraft}
+        reminderSubject={reminderSubject}
+        setReminderSubject={setReminderSubject}
+        reminderBody={reminderBody}
+        setReminderBody={setReminderBody}
+      />
 
-      {reminderDraftModalOpen && (
-        <div
-          className="auth-modal-backdrop"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="reminder-modal-title"
-          data-testid="reminder-draft-modal"
-        >
-          <div className="auth-modal-card" style={{ maxWidth: '580px' }}>
-            <h3
-              id="reminder-modal-title"
-              style={{ marginTop: 0, fontFamily: 'var(--font-heading)' }}
-            >
-              Draft Client Payment Reminder
-            </h3>
-            <p style={{ fontSize: '0.875rem', color: 'var(--ink-muted)' }}>
-              Tone is derived from client payment history or explicit selection. Strict server validation ensures zero invented financial claims.
-            </p>
-
-            {reminderDraftError && (
-              <div
-                className="banner"
-                data-tone="late"
-                data-testid="reminder-draft-error"
-                role="alert"
-                style={{ marginBottom: '1rem' }}
-              >
-                {reminderDraftError}
-              </div>
-            )}
-
-            {reminderFeedback && (
-              <div
-                className="banner"
-                data-tone="paid"
-                data-testid="reminder-draft-feedback"
-                style={{ marginBottom: '1rem' }}
-              >
-                {reminderFeedback}
-              </div>
-            )}
-
-            <div className="form-group" style={{ marginBottom: '0.85rem' }}>
-              <label htmlFor="reminder-invoice-select">Target invoice:</label>
-              <select
-                id="reminder-invoice-select"
-                className="form-input"
-                data-testid="reminder-invoice-select"
-                value={reminderTargetInvoice?.id ?? ''}
-                onChange={(e) => {
-                  const inv = invoices.find((i) => i.id === e.target.value);
-                  if (inv) handleOpenReminderDraftForInvoice(inv);
-                }}
-              >
-                {invoices
-                  .filter((i) => i.providerStatus !== 'PAID' && i.localStatus !== 'CANCELLED')
-                  .map((i) => (
-                    <option key={i.id} value={i.id}>
-                      {i.invoiceNumber} — {formatMoneyFromMinor(i.totalMinor, i.currencyCode)} (Due {i.dueDate})
-                    </option>
-                  ))}
-              </select>
-            </div>
-
-            <div className="form-group" style={{ marginBottom: '0.85rem' }}>
-              <label htmlFor="reminder-tone-select">Reminder tone:</label>
-              <select
-                id="reminder-tone-select"
-                className="form-input"
-                data-testid="reminder-tone-select"
-                value={reminderTone}
-                onChange={(e) => setReminderTone(e.target.value as ReminderTone)}
-              >
-                <option value="polite">Polite — Friendly courtesy reminder</option>
-                <option value="firm">Firm — Direct follow-up for overdue balance</option>
-                <option value="final">Final — Formal final notice (30+ days overdue)</option>
-              </select>
-            </div>
-
-            <div className="form-group" style={{ marginBottom: '0.85rem' }}>
-              <label htmlFor="reminder-schedule-input">Scheduled date (optional):</label>
-              <input
-                id="reminder-schedule-input"
-                type="date"
-                className="form-input"
-                data-testid="reminder-schedule-input"
-                value={reminderScheduledDate}
-                onChange={(e) => setReminderScheduledDate(e.target.value)}
-              />
-            </div>
-
-            <div className="form-group" style={{ marginBottom: '0.85rem' }}>
-              <label htmlFor="reminder-notes-input">Instructions or client context (optional):</label>
-              <input
-                id="reminder-notes-input"
-                type="text"
-                className="form-input"
-                data-testid="reminder-notes-input"
-                placeholder="e.g. Please mention our project milestones"
-                value={reminderNotes}
-                onChange={(e) => setReminderNotes(e.target.value)}
-              />
-            </div>
-
-            <div className="btn-row" style={{ marginBottom: '1rem' }}>
-              <button
-                type="button"
-                className="action-btn"
-                data-testid="reminder-generate-draft-btn"
-                disabled={reminderDraftLoading}
-                onClick={() => void handleGenerateReminderDraft()}
-              >
-                {reminderDraftLoading ? 'Drafting wording...' : 'Generate wording'}
-              </button>
-            </div>
-
-            {reminderSubject && (
-              <div style={{ marginTop: '0.5rem', marginBottom: '1rem' }}>
-                <div className="form-group" style={{ marginBottom: '0.5rem' }}>
-                  <label htmlFor="reminder-subject-input">Subject line:</label>
-                  <input
-                    id="reminder-subject-input"
-                    type="text"
-                    className="form-input"
-                    data-testid="reminder-subject-input"
-                    value={reminderSubject}
-                    onChange={(e) => setReminderSubject(e.target.value)}
-                  />
-                </div>
-                <div className="form-group" style={{ marginBottom: '0.5rem' }}>
-                  <label htmlFor="reminder-body-input">Email body:</label>
-                  <textarea
-                    id="reminder-body-input"
-                    className="form-input"
-                    data-testid="reminder-body-input"
-                    rows={6}
-                    value={reminderBody}
-                    onChange={(e) => setReminderBody(e.target.value)}
-                  />
-                </div>
-              </div>
-            )}
-
-            <div className="btn-row">
-              <button
-                type="button"
-                className="secondary-btn"
-                data-testid="close-reminder-modal-btn"
-                onClick={() => setReminderDraftModalOpen(false)}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {authModalOpen && (
-        <div
-          className="auth-modal-backdrop"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="auth-modal-title"
-        >
-          <div className="auth-modal-card" data-testid="auth-modal">
-            <div className="auth-tab-row">
-              <button
-                type="button"
-                className="auth-tab-btn"
-                aria-selected={authMode === 'login'}
-                data-testid="auth-tab-login"
-                onClick={() => {
-                  setAuthMode('login');
-                  setAuthError(null);
-                }}
-              >
-                Sign in
-              </button>
-              <button
-                type="button"
-                className="auth-tab-btn"
-                aria-selected={authMode === 'register'}
-                data-testid="auth-tab-register"
-                onClick={() => {
-                  setAuthMode('register');
-                  setAuthError(null);
-                }}
-              >
-                Create account
-              </button>
-            </div>
-
-            <h3
-              id="auth-modal-title"
-              style={{ marginTop: 0, fontFamily: 'var(--font-heading)' }}
-            >
-              {authMode === 'login'
-                ? 'Sign in to InvoicePilot'
-                : 'Register new account'}
-            </h3>
-
-            {authError && (
-              <div
-                className="status-banner"
-                data-tone="late"
-                data-testid="auth-error"
-                role="alert"
-                style={{ marginBottom: '1rem' }}
-              >
-                {authError}
-              </div>
-            )}
-            {authFeedback && (
-              <div
-                className="status-banner"
-                data-tone="paid"
-                data-testid="auth-feedback"
-                role="status"
-                style={{ marginBottom: '1rem' }}
-              >
-                {authFeedback}
-              </div>
-            )}
-
-            <form
-              onSubmit={(e) =>
-                void (authMode === 'login'
-                  ? handleLogin(e)
-                  : handleRegister(e))
-              }
-            >
-              <div className="form-field" style={{ marginBottom: '0.75rem' }}>
-                <label className="form-label" htmlFor="auth-email">
-                  Email address *
-                </label>
-                <input
-                  id="auth-email"
-                  className="form-input"
-                  type="email"
-                  required
-                  data-testid="auth-email-input"
-                  value={authEmail}
-                  onChange={(e) => setAuthEmail(e.target.value)}
-                  placeholder="user@example.com"
-                />
-              </div>
-
-              {authMode === 'register' && (
-                <div className="form-field" style={{ marginBottom: '0.75rem' }}>
-                  <label className="form-label" htmlFor="auth-display-name">
-                    Full name / business name *
-                  </label>
-                  <input
-                    id="auth-display-name"
-                    className="form-input"
-                    type="text"
-                    required
-                    data-testid="auth-displayname-input"
-                    value={authDisplayName}
-                    onChange={(e) => setAuthDisplayName(e.target.value)}
-                    placeholder="Jane Doe Consulting"
-                  />
-                </div>
-              )}
-
-              <div className="form-field" style={{ marginBottom: '1rem' }}>
-                <label className="form-label" htmlFor="auth-password">
-                  Password * (minimum 8 characters)
-                </label>
-                <input
-                  id="auth-password"
-                  className="form-input"
-                  type="password"
-                  required
-                  minLength={8}
-                  data-testid="auth-password-input"
-                  value={authPassword}
-                  onChange={(e) => setAuthPassword(e.target.value)}
-                />
-              </div>
-
-              <div
-                className="btn-row"
-                style={{ justifyContent: 'space-between' }}
-              >
-                <div className="btn-row">
-                  <button
-                    type="submit"
-                    className="action-btn"
-                    data-testid="auth-submit-btn"
-                    disabled={authLoading}
-                  >
-                    {authLoading
-                      ? 'Please wait...'
-                      : authMode === 'login'
-                      ? 'Sign in'
-                      : 'Create account'}
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary-btn"
-                    data-testid="auth-close-btn"
-                    onClick={() => setAuthModalOpen(false)}
-                  >
-                    Cancel
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  className="secondary-btn"
-                  data-testid="auth-demo-btn"
-                  disabled={authLoading}
-                  onClick={async () => {
-                    setAuthLoading(true);
-                    try {
-                      const res = await fetch('/api/auth/demo', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' }
-                      });
-                      if (res.ok) {
-                        const data = await res.json();
-                        setCurrentUser(data.user);
-                        setSessionToken(data.sessionToken);
-                        setOnboarding(data.onboarding);
-                        try {
-                          window.localStorage.setItem(
-                            'invoicepilot-session-token',
-                            data.sessionToken
-                          );
-                        } catch {}
-                        setAuthModalOpen(false);
-                        await loadClients();
-                        await loadInvoices();
-                        await loadActivities();
-                      }
-                    } finally {
-                      setAuthLoading(false);
-                    }
-                  }}
-                >
-                  Continue as demo
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        authMode={authMode}
+        setAuthMode={setAuthMode}
+        authError={authError}
+        setAuthError={setAuthError}
+        authFeedback={authFeedback}
+        authEmail={authEmail}
+        setAuthEmail={setAuthEmail}
+        authDisplayName={authDisplayName}
+        setAuthDisplayName={setAuthDisplayName}
+        authPassword={authPassword}
+        setAuthPassword={setAuthPassword}
+        authLoading={authLoading}
+        handleLogin={handleLogin}
+        handleRegister={handleRegister}
+        handleDemoLogin={handleDemoLogin}
+      />
     </div>
   );
 }
