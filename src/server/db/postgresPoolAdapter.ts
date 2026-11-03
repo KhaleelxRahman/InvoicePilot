@@ -31,9 +31,26 @@ export function buildPostgresSslConfig(
   }
 
   const customCa = process.env.SUPABASE_SSL_CA || process.env.DATABASE_SSL_CA;
+  if (customCa) {
+    return {
+      rejectUnauthorized: true,
+      ca: customCa
+    };
+  }
+
+  const isNetlify = Boolean(
+    process.env.NETLIFY === 'true' ||
+    process.env.LAMBDA_TASK_ROOT ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME
+  );
+
+  const allowInsecureTls =
+    /sslmode=no-verify/i.test(connectionString) ||
+    process.env.SUPABASE_SSL_REJECT_UNAUTHORIZED === 'false' ||
+    isNetlify;
+
   return {
-    rejectUnauthorized: true,
-    ...(customCa ? { ca: customCa } : {})
+    rejectUnauthorized: !allowInsecureTls
   };
 }
 

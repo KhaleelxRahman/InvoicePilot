@@ -1140,7 +1140,7 @@ export function App() {
         throw new Error(data.error?.message ?? 'Failed to reset demo tenant.');
       }
       if (data.token) {
-        localStorage.setItem(SESSION_STORAGE_KEY, data.token);
+        window.localStorage.setItem('invoicepilot-session-token', data.token);
       }
       setAuthFeedback(data.message ?? 'Demo tenant reset successfully.');
       await checkSession();

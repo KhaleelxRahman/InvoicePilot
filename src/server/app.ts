@@ -2554,8 +2554,8 @@ export function createApiApp(
     }
   });
 
-  // Catch-all for unknown /api/* routes using the proposed API.md error shape
-  app.all('/api/*', (_req: Request, res: Response) => {
+  // Catch-all for unknown /api and /api/* routes using the proposed API.md error shape
+  app.all(['/api', '/api/*'], (_req: Request, res: Response) => {
     res.status(404).json({
       error: {
         code: 'ROUTE_NOT_FOUND',
