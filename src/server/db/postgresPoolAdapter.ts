@@ -7,6 +7,9 @@ import { translateSqlDialect, normalizeRow } from './postgresAdapter.js';
 
 const { Pool } = pg;
 
+// Parse PostgreSQL int8 / BIGINT (OID 20) as JavaScript numbers for safe financial minor units
+pg.types.setTypeParser(20, (val: string) => Number(val));
+
 // Tracks active transaction client per async call stack
 const txStorage = new AsyncLocalStorage<pg.PoolClient>();
 

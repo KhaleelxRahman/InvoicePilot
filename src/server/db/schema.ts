@@ -66,17 +66,18 @@ export function getCurrencyExponent(currencyCode: string): number {
   return CURRENCY_EXPONENTS[code];
 }
 
-export function formatMinorUnitsToDecimal(amountMinor: number, currencyCode: string): string {
-  if (!Number.isSafeInteger(amountMinor) || amountMinor < 0) {
+export function formatMinorUnitsToDecimal(amountMinor: number | string, currencyCode: string): string {
+  const numericAmount = typeof amountMinor === 'string' ? Number(amountMinor) : amountMinor;
+  if (!Number.isSafeInteger(numericAmount) || numericAmount < 0) {
     throw new Error(`Invalid minor unit amount: ${amountMinor}`);
   }
   const exponent = getCurrencyExponent(currencyCode);
   if (exponent === 0) {
-    return String(amountMinor);
+    return String(numericAmount);
   }
   const factor = 10 ** exponent;
-  const major = Math.floor(amountMinor / factor);
-  const minor = String(amountMinor % factor).padStart(exponent, '0');
+  const major = Math.floor(numericAmount / factor);
+  const minor = String(numericAmount % factor).padStart(exponent, '0');
   return `${major}.${minor}`;
 }
 
