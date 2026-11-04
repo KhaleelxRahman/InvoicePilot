@@ -1,10 +1,17 @@
 # Database Design
 
 ## Status
-Implemented and verified across Stages 04, 09, 11, 12, and 14 (`CURRENT_SCHEMA_VERSION = 5`).
+Implemented and verified across Stages 04, 09, 11, 12, 14, and 15 (`CURRENT_SCHEMA_VERSION = 6`).
 Supports dual persistence engines:
-1. **Supabase Free PostgreSQL** for serverless production deployment via Netlify Functions (`migrations/001_initial_supabase_schema.sql` and `npm run db:migrate:supabase`).
+1. **Supabase Free PostgreSQL** for serverless production deployment via Netlify Functions (`migrations/001_initial_supabase_schema.sql`, `migrations/002_invoice_completed_flag.sql`, and `npm run db:migrate:supabase`).
 2. **On-disk SQLite** (`node:sqlite` `DatabaseSync` with WAL journaling and `PRAGMA foreign_keys = ON`) for offline local development and test suite (`data/invoicepilot.db` and `data/invoicepilot.test.db`).
+
+## Stage 15 Implemented Schema Migration & Operational Completion Flag
+- **Migration 006 (`006_invoice_operational_completion`) & `migrations/002_invoice_completed_flag.sql`:**
+  - Added `is_completed INTEGER NOT NULL DEFAULT 0 CHECK (is_completed IN (0, 1))` to `invoices`.
+  - Added `completed_at TEXT` (SQLite) / `completed_at TIMESTAMPTZ` (PostgreSQL) to `invoices`.
+  - Defines an operational completion flag indicating work or services have been fulfilled, strictly separated from financial payment status (`provider_status = PAID`).
+  - Transition enforced server-side: blocks cancelled invoices (`INVALID_STATE_TRANSITION`), blocks duplicate completion (`INVOICE_ALREADY_COMPLETED`), enforces owner isolation, and records append-only `activity_log` entry `INVOICE_MARKED_COMPLETED`.
 
 ## Supabase PostgreSQL Architecture & Migration 001
 - **DDL & Schema Location**: `migrations/001_initial_supabase_schema.sql`

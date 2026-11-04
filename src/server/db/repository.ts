@@ -115,6 +115,8 @@ export interface InvoiceRecord {
   taxMinor: number;
   totalMinor: number;
   paidAmountMinor: number;
+  isCompleted?: boolean;
+  completedAt?: string;
   issueDate: string;
   dueDate: string;
   notes?: string;
@@ -295,10 +297,22 @@ export interface WebhookEventDetailRecord {
 }
 
 export class OwnershipOrValidationError extends Error {
-  public readonly code: 'NOT_FOUND' | 'FORBIDDEN_OWNER_MISMATCH' | 'VALIDATION_ERROR' | 'DUPLICATE_EVENT';
+  public readonly code:
+    | 'NOT_FOUND'
+    | 'FORBIDDEN_OWNER_MISMATCH'
+    | 'VALIDATION_ERROR'
+    | 'DUPLICATE_EVENT'
+    | 'INVALID_STATE_TRANSITION'
+    | 'INVOICE_ALREADY_COMPLETED';
 
   public constructor(
-    code: 'NOT_FOUND' | 'FORBIDDEN_OWNER_MISMATCH' | 'VALIDATION_ERROR' | 'DUPLICATE_EVENT',
+    code:
+      | 'NOT_FOUND'
+      | 'FORBIDDEN_OWNER_MISMATCH'
+      | 'VALIDATION_ERROR'
+      | 'DUPLICATE_EVENT'
+      | 'INVALID_STATE_TRANSITION'
+      | 'INVOICE_ALREADY_COMPLETED',
     message: string
   ) {
     super(message);
@@ -1442,6 +1456,7 @@ export class InvoicePilotRepository {
         `SELECT
           id, owner_user_id, client_id, invoice_number, currency_code,
           subtotal_minor, tax_rate_bps, tax_minor, total_minor, paid_amount_minor,
+          is_completed, completed_at,
           issue_date, due_date, notes, local_status,
           provider_mode, provider_invoice_id, provider_status,
           provider_recipient_view_url, provider_invoicer_view_url, last_provider_sync_at,
@@ -1460,6 +1475,8 @@ export class InvoicePilotRepository {
           tax_minor: number;
           total_minor: number;
           paid_amount_minor: number | null;
+          is_completed: number | null;
+          completed_at: string | null;
           issue_date: string;
           due_date: string;
           notes: string | null;
@@ -1520,6 +1537,8 @@ export class InvoicePilotRepository {
         (row.provider_status === 'PAID' || row.provider_status === 'MARKED_AS_PAID'
           ? row.total_minor
           : 0),
+      isCompleted: Boolean(row.is_completed),
+      completedAt: row.completed_at ?? undefined,
       issueDate: row.issue_date,
       dueDate: row.due_date,
       notes: row.notes ?? undefined,
@@ -1545,6 +1564,50 @@ export class InvoicePilotRepository {
       createdAt: row.created_at,
       updatedAt: row.updated_at
     };
+  }
+
+  public markInvoiceCompleted(ownerUserId: string, invoiceId: string): InvoiceRecord {
+    const invoice = this.getInvoiceForOwner(ownerUserId, invoiceId);
+
+    if (invoice.localStatus === 'CANCELLED') {
+      throw new OwnershipOrValidationError(
+        'INVALID_STATE_TRANSITION',
+        'Cancelled invoices cannot be marked as completed.'
+      );
+    }
+
+    if (invoice.isCompleted) {
+      throw new OwnershipOrValidationError(
+        'INVOICE_ALREADY_COMPLETED',
+        'Invoice is already marked as completed.'
+      );
+    }
+
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        'UPDATE invoices SET is_completed = 1, completed_at = ?, updated_at = ? WHERE id = ? AND owner_user_id = ?'
+      )
+      .run(now, now, invoiceId, ownerUserId);
+
+    this.appendActivityLog(ownerUserId, {
+      actorType: 'user',
+      action: 'INVOICE_MARKED_COMPLETED',
+      entityType: 'invoice',
+      entityId: invoiceId,
+      result: 'EXECUTED',
+      detail: {
+        invoiceNumber: invoice.invoiceNumber,
+        isCompleted: true,
+        completedAt: now,
+        localStatus: invoice.localStatus,
+        providerStatus: invoice.providerStatus,
+        totalMinor: invoice.totalMinor,
+        currencyCode: invoice.currencyCode
+      }
+    });
+
+    return this.getInvoiceForOwner(ownerUserId, invoiceId);
   }
 
   public listInvoicesForOwner(ownerUserId: string): InvoiceRecord[] {

@@ -12,6 +12,7 @@ export interface SidebarProps {
   activitiesCount: number;
   unreadNotificationsCount: number;
   onboardingStatusText: string;
+  currentMode?: 'sandbox' | 'mock';
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -24,7 +25,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   remindersCount,
   activitiesCount,
   unreadNotificationsCount,
-  onboardingStatusText
+  onboardingStatusText,
+  currentMode = 'sandbox'
 }) => {
   return (
     <>
@@ -425,6 +427,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             </li>
           </ul>
+        </div>
+
+        <div className="sidebar-footer-mode">
+          <div
+            className="sidebar-mode-badge"
+            data-mode={currentMode}
+            data-testid="provider-mode-badge"
+            role="status"
+            aria-live="polite"
+          >
+            <span className="sidebar-mode-dot" aria-hidden="true" />
+            <span className="sidebar-mode-text">
+              {currentMode === 'mock' ? 'Isolated Mock' : 'PayPal Sandbox'}
+            </span>
+          </div>
         </div>
       </nav>
     </>

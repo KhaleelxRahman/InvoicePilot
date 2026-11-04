@@ -139,6 +139,14 @@ test.describe('Stage 05 — Clients and Conventional Invoice Draft Workflow', ()
     await expect(page.getByTestId('detail-local-status')).toHaveText('DRAFT');
     await expect(page.getByTestId('detail-provider-status')).toHaveText('NONE');
 
+    // 4.5. Verify Download PDF button downloads an authentic PDF file
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByTestId('download-pdf-btn').click()
+    ]);
+    expect(download.suggestedFilename()).toContain('.pdf');
+    expect(download.suggestedFilename()).toContain(invoiceNum);
+
     // 5. Verify no horizontal overflow at current viewport (desktop 1280px or mobile 360px)
     const hasHorizontalOverflow = await page.evaluate(() => {
       return document.documentElement.scrollWidth > document.documentElement.clientWidth;

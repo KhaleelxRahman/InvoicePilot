@@ -40,7 +40,8 @@ export const STAGE09_SCHEMA_VERSION = 2;
 export const STAGE11_SCHEMA_VERSION = 3;
 export const STAGE12_SCHEMA_VERSION = 4;
 export const STAGE14_SCHEMA_VERSION = 5;
-export const CURRENT_SCHEMA_VERSION = 5;
+export const STAGE15_SCHEMA_VERSION = 6;
+export const CURRENT_SCHEMA_VERSION = 6;
 
 /**
  * Currency exponent map (minor units per major unit).
@@ -170,6 +171,8 @@ CREATE TABLE IF NOT EXISTS invoices (
   tax_minor INTEGER NOT NULL DEFAULT 0 CHECK (tax_minor >= 0),
   total_minor INTEGER NOT NULL CHECK (total_minor >= 0 AND total_minor = subtotal_minor + tax_minor),
   paid_amount_minor INTEGER NOT NULL DEFAULT 0 CHECK (paid_amount_minor >= 0),
+  is_completed INTEGER NOT NULL DEFAULT 0 CHECK (is_completed IN (0, 1)),
+  completed_at TEXT,
   issue_date TEXT NOT NULL,
   due_date TEXT NOT NULL,
   notes TEXT,
@@ -507,6 +510,32 @@ export function openAndMigrateDatabase(dbFilePath: string): any {
     ).run(
       STAGE14_SCHEMA_VERSION,
       '005_stage14_invoice_templates',
+      new Date().toISOString()
+    );
+  }
+
+  const existingMigration6 = db
+    .prepare('SELECT version FROM schema_migrations WHERE version = ?')
+    .get(STAGE15_SCHEMA_VERSION) as { version: number } | undefined;
+
+  if (!existingMigration6) {
+    // Migration 006: Invoice operational completion flag
+    try {
+      db.exec('ALTER TABLE invoices ADD COLUMN is_completed INTEGER NOT NULL DEFAULT 0 CHECK (is_completed IN (0, 1));');
+    } catch {
+      // Column may already exist
+    }
+    try {
+      db.exec('ALTER TABLE invoices ADD COLUMN completed_at TEXT;');
+    } catch {
+      // Column may already exist
+    }
+
+    db.prepare(
+      'INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)'
+    ).run(
+      STAGE15_SCHEMA_VERSION,
+      '006_invoice_operational_completion',
       new Date().toISOString()
     );
   }

@@ -25,23 +25,10 @@ test.describe('Stage 12 — Grounded Aging and Cash-Flow Insights E2E', () => {
     const homeSummary = page.getByTestId('home-summary-statement');
     await expect(homeSummary).toBeVisible();
 
-    // Verify existing aging summary testid is preserved
-    const agingSummary = page.getByTestId('home-aging-summary');
-    await expect(agingSummary).toBeVisible();
-
-    // =========================================================================
-    // 2. 30-Day Cash-Flow Forecast Card & Projection Labeling
-    // =========================================================================
-    const forecastCard = page.getByTestId('cash-flow-forecast-card');
-    await expect(forecastCard).toBeVisible();
-
-    const forecastBadge = page.getByTestId('forecast-estimate-badge');
-    await expect(forecastBadge).toBeVisible();
-    await expect(forecastBadge).toContainText('ESTIMATE / PROJECTION');
-
-    const forecastDisclaimer = page.getByTestId('forecast-disclaimer');
-    await expect(forecastDisclaimer).toBeVisible();
-    await expect(forecastDisclaimer).toContainText('probability-weighted');
+    // Verify aging summary & cash-flow forecast cards have been removed from Overview
+    await expect(page.getByTestId('home-aging-summary')).not.toBeAttached();
+    await expect(page.getByTestId('aging-buckets-panel')).not.toBeAttached();
+    await expect(page.getByTestId('cash-flow-forecast-card')).not.toBeAttached();
 
     // =========================================================================
     // 3. Slow-Payer Rankings Table & Reliability Status
@@ -96,7 +83,7 @@ test.describe('Stage 12 — Grounded Aging and Cash-Flow Insights E2E', () => {
     // Return to overview and verify updated insights
     await navigateToSection(page, 'nav-overview');
 
-    await expect(forecastCard).toBeVisible();
+    await expect(page.getByTestId('cash-flow-forecast-card')).not.toBeAttached();
     await expect(slowPayerTable).toBeVisible();
 
     // Assert zero uncaught console errors

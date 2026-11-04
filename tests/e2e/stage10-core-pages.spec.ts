@@ -28,10 +28,8 @@ test.describe('Stage 10 — Core Product Pages E2E', () => {
     const attentionTable = page.getByTestId('home-needs-attention-table');
     await expect(attentionTable).toBeVisible();
 
-    const agingSummary = page.getByTestId('home-aging-summary');
-    await expect(agingSummary).toBeVisible();
-    await expect(agingSummary).toContainText('Aging 0-30 days');
-    await expect(agingSummary).toContainText('Paid past 6 months');
+    // Verify aging summary has been removed from Overview to simplify the screen
+    await expect(page.getByTestId('home-aging-summary')).not.toBeAttached();
 
     // =========================================================================
     // 2. Invoices List & Detail Paper Document (Pages 14 & 15)
@@ -61,6 +59,16 @@ test.describe('Stage 10 — Core Product Pages E2E', () => {
     await expect(page.getByTestId('invoice-timeline')).toBeVisible();
     await expect(page.getByTestId('duplicate-invoice-btn')).toBeVisible();
     await expect(page.getByTestId('back-to-invoices-btn')).toBeVisible();
+
+    // Verify operational completion workflow
+    const markCompletedBtn = page.getByTestId('mark-completed-btn');
+    if (await markCompletedBtn.isVisible()) {
+      await markCompletedBtn.click();
+      await expect(page.getByTestId('confirm-complete-dialog')).toBeVisible();
+      await page.getByTestId('confirm-mark-completed-btn').click();
+      await expect(page.getByTestId('complete-invoice-feedback')).toBeVisible();
+      await expect(page.getByTestId('detail-operational-status')).toContainText('COMPLETED');
+    }
 
     // Test duplicate invoice draft flow
     await page.getByTestId('duplicate-invoice-btn').click();

@@ -834,11 +834,28 @@ export class AsyncInvoicePilotRepository {
     });
   }
 
+  private static completionColumnsMigrated = false;
+
+  private async ensureCompletionColumns(): Promise<void> {
+    if (AsyncInvoicePilotRepository.completionColumnsMigrated) return;
+    try {
+      await this.db.exec(`
+        ALTER TABLE invoices ADD COLUMN IF NOT EXISTS is_completed INTEGER NOT NULL DEFAULT 0 CHECK (is_completed IN (0, 1));
+        ALTER TABLE invoices ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
+      `);
+      AsyncInvoicePilotRepository.completionColumnsMigrated = true;
+    } catch {
+      // Columns may already exist
+    }
+  }
+
   public async getInvoiceForOwner(ownerUserId: string, invoiceId: string): Promise<InvoiceRecord> {
+    await this.ensureCompletionColumns();
     const row = (await this.db
       .prepare(
         `SELECT id, owner_user_id, client_id, invoice_number, currency_code, tax_rate_bps,
-                subtotal_minor, tax_minor, total_minor, paid_amount_minor, local_status,
+                subtotal_minor, tax_minor, total_minor, paid_amount_minor,
+                is_completed, completed_at, local_status,
                 provider_status, provider_invoice_id, provider_recipient_view_url, provider_invoicer_view_url,
                 last_provider_sync_at, provider_mode, issue_date, due_date, notes, created_at, updated_at
          FROM invoices WHERE id = ?`
@@ -887,6 +904,8 @@ export class AsyncInvoicePilotRepository {
       taxMinor: Number(row.tax_minor ?? 0),
       totalMinor: Number(row.total_minor ?? 0),
       paidAmountMinor: Number(row.paid_amount_minor ?? 0),
+      isCompleted: Boolean(row.is_completed),
+      completedAt: row.completed_at ?? undefined,
       issueDate: row.issue_date,
       dueDate: row.due_date,
       notes: row.notes ?? undefined,
@@ -1059,6 +1078,50 @@ export class AsyncInvoicePilotRepository {
 
     if (!row) return null;
     return await this.getInvoiceForOwner(row.owner_user_id, row.id);
+  }
+
+  public async markInvoiceCompleted(ownerUserId: string, invoiceId: string): Promise<InvoiceRecord> {
+    const invoice = await this.getInvoiceForOwner(ownerUserId, invoiceId);
+
+    if (invoice.localStatus === 'CANCELLED') {
+      throw new OwnershipOrValidationError(
+        'INVALID_STATE_TRANSITION',
+        'Cancelled invoices cannot be marked as completed.'
+      );
+    }
+
+    if (invoice.isCompleted) {
+      throw new OwnershipOrValidationError(
+        'INVOICE_ALREADY_COMPLETED',
+        'Invoice is already marked as completed.'
+      );
+    }
+
+    const now = new Date().toISOString();
+    await this.db
+      .prepare(
+        'UPDATE invoices SET is_completed = 1, completed_at = ?, updated_at = ? WHERE id = ? AND owner_user_id = ?'
+      )
+      .run(now, now, invoiceId, ownerUserId);
+
+    await this.appendActivityLog(ownerUserId, {
+      actorType: 'user',
+      action: 'INVOICE_MARKED_COMPLETED',
+      entityType: 'invoice',
+      entityId: invoiceId,
+      result: 'EXECUTED',
+      detail: {
+        invoiceNumber: invoice.invoiceNumber,
+        isCompleted: true,
+        completedAt: now,
+        localStatus: invoice.localStatus,
+        providerStatus: invoice.providerStatus,
+        totalMinor: invoice.totalMinor,
+        currencyCode: invoice.currencyCode
+      }
+    });
+
+    return await this.getInvoiceForOwner(ownerUserId, invoiceId);
   }
 
   public async refreshInvoiceProviderStatus(

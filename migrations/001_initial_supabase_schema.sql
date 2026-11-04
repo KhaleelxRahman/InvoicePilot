@@ -70,6 +70,8 @@ CREATE TABLE IF NOT EXISTS invoices (
   tax_minor BIGINT NOT NULL DEFAULT 0 CHECK (tax_minor >= 0),
   total_minor BIGINT NOT NULL CHECK (total_minor >= 0 AND total_minor = subtotal_minor + tax_minor),
   paid_amount_minor BIGINT NOT NULL DEFAULT 0 CHECK (paid_amount_minor >= 0),
+  is_completed INTEGER NOT NULL DEFAULT 0 CHECK (is_completed IN (0, 1)),
+  completed_at TIMESTAMPTZ,
   issue_date DATE NOT NULL,
   due_date DATE NOT NULL,
   notes TEXT,

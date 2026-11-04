@@ -31,6 +31,7 @@ import {
 } from './db/repository.js';
 import { GeminiInvoiceAgent } from './agent/geminiAgent.js';
 import { AsyncInvoicePilotRepository } from './db/asyncRepository.js';
+import { generateInvoicePdf } from './pdf/invoicePdfGenerator.js';
 
 function parseCookies(cookieHeader?: string): Record<string, string> {
   const list: Record<string, string> = {};
@@ -46,6 +47,9 @@ function parseCookies(cookieHeader?: string): Record<string, string> {
 }
 
 function resolveSessionToken(req: Request): string | null {
+  const queryToken = typeof req.query?.token === 'string' ? req.query.token.trim() : null;
+  if (queryToken) return queryToken;
+
   const headerToken = req.header('x-session-token')?.trim();
   if (headerToken) return headerToken;
 
@@ -1226,6 +1230,30 @@ export function createApiApp(
     }
   });
 
+  app.get('/api/invoices/:id/pdf', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const ownerId = await requireOwner(req, res);
+      if (!ownerId) return;
+      const invoiceId = String(req.params.id ?? '');
+      const invoice = await repo.getInvoiceForOwner(ownerId, invoiceId);
+      const client = await repo.getClientForOwner(ownerId, invoice.clientId);
+      const settings = typeof repo.getSettingsForOwner === 'function'
+        ? await repo.getSettingsForOwner(ownerId)
+        : null;
+
+      const pdfBuffer = generateInvoicePdf({ invoice, client, settings });
+      const safeInvoiceNum = (invoice.invoiceNumber || invoice.id).replace(/[^a-zA-Z0-9_-]/g, '_');
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="Invoice-${safeInvoiceNum}.pdf"`);
+      res.setHeader('Content-Length', pdfBuffer.length);
+      res.setHeader('Cache-Control', 'private, no-cache, no-store, must-revalidate');
+      res.status(200).send(pdfBuffer);
+    } catch (err) {
+      next(err);
+    }
+  });
+
   app.patch('/api/invoices/:id', async (req: Request, res: Response, next: NextFunction) => {
     try {
       const ownerId = await requireOwner(req, res);
@@ -1880,6 +1908,31 @@ export function createApiApp(
       next(err);
     }
   });
+
+  // Mark Invoice as Completed (Operational completion workflow)
+  const handleMarkInvoiceCompleted = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const ownerId = await requireOwner(req, res);
+      if (!ownerId) return;
+
+      const invoiceId = String(req.params.id ?? '').trim();
+      const updated = await repo.markInvoiceCompleted(ownerId, invoiceId);
+
+      if (typeof repo.createNotification === 'function') {
+        await repo.createNotification(ownerId, {
+          title: 'Invoice marked completed',
+          body: `Invoice ${updated.invoiceNumber} has been marked as operationally completed.`
+        });
+      }
+
+      res.status(200).json({ ok: true, invoice: updated });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  app.post('/api/invoices/:id/complete', handleMarkInvoiceCompleted);
+  app.post('/api/invoices/:id/mark-completed', handleMarkInvoiceCompleted);
 
   // Stage 08: PayPal Webhook Signature Verification & Idempotent Deduplication
   app.post('/api/webhooks/paypal', async (req: Request, res: Response, next: NextFunction) => {
@@ -2574,7 +2627,9 @@ export function createApiApp(
         VALIDATION_ERROR: 400,
         FORBIDDEN_OWNER_MISMATCH: 403,
         NOT_FOUND: 404,
-        DUPLICATE_EVENT: 409
+        DUPLICATE_EVENT: 409,
+        INVALID_STATE_TRANSITION: 400,
+        INVOICE_ALREADY_COMPLETED: 409
       };
       res.status(statusMap[err.code] ?? 400).json({
         error: {

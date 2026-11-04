@@ -332,7 +332,7 @@ export const Header: React.FC<HeaderProps> = ({
               <span
                 className="status-pill"
                 data-tone="caution"
-                style={{ fontSize: '0.65rem', padding: '0.05rem 0.35rem' }}
+                style={{ fontSize: '0.75rem', padding: '0.1rem 0.45rem' }}
               >
                 Demo
               </span>
@@ -374,20 +374,6 @@ export const Header: React.FC<HeaderProps> = ({
               Log out
             </button>
           )}
-
-          <div
-            className="mode-badge"
-            data-mode={currentMode}
-            data-testid="provider-mode-badge"
-            role="status"
-            aria-live="polite"
-          >
-            <span>
-              {currentMode === 'sandbox'
-                ? 'Mode: PayPal Sandbox'
-                : 'Mode: Isolated Mock'}
-            </span>
-          </div>
 
           <fieldset className="theme-fieldset" aria-label="Appearance theme">
             <legend className="theme-legend">Appearance theme</legend>

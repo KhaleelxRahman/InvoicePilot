@@ -175,21 +175,37 @@ export const StartPage: React.FC<StartPageProps> = ({
 
             <div className="start-page-features-grid">
               <div className="feature-mini-card">
-                <span className="feature-mini-icon">🛡️</span>
+                <span className="feature-mini-icon" aria-hidden="true">
+                  <svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M10 2l6 3v5c0 4.5-3 7.5-6 8.5C7 17.5 4 14.5 4 10V5l6-3z" />
+                    <path d="M7.5 10l2 2 3.5-3.5" />
+                  </svg>
+                </span>
                 <div>
                   <strong>Human-in-the-Loop Gate</strong>
                   <p>AI tools propose; you review and authorize. Consequential sends never happen autonomously.</p>
                 </div>
               </div>
               <div className="feature-mini-card">
-                <span className="feature-mini-icon">⚡</span>
+                <span className="feature-mini-icon" aria-hidden="true">
+                  <svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M11 2L4 11h6l-1 7 7-9h-6l1-7z" />
+                  </svg>
+                </span>
                 <div>
                   <strong>Official PayPal Invoicing v2</strong>
                   <p>Real Sandbox OAuth, draft preparation, buyer links, and signature-verified webhooks.</p>
                 </div>
               </div>
               <div className="feature-mini-card">
-                <span className="feature-mini-icon">📊</span>
+                <span className="feature-mini-icon" aria-hidden="true">
+                  <svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 17h14" />
+                    <rect x="5" y="10" width="2.5" height="7" rx="0.5" />
+                    <rect x="9" y="6" width="2.5" height="11" rx="0.5" />
+                    <rect x="13" y="3" width="2.5" height="14" rx="0.5" />
+                  </svg>
+                </span>
                 <div>
                   <strong>Grounded Cash-Flow Insights</strong>
                   <p>Receivables aging analysis and 30-day forecast estimates derived from verified records.</p>
@@ -241,10 +257,10 @@ export const StartPage: React.FC<StartPageProps> = ({
                     padding: '0.65rem 0.85rem',
                     borderRadius: 'var(--radius-sm)',
                     marginBottom: '1rem',
-                    fontSize: '0.82rem',
-                    background: 'rgba(239, 68, 68, 0.1)',
-                    border: '1px solid var(--danger)',
-                    color: 'var(--danger)'
+                    fontSize: '0.8125rem',
+                    background: 'var(--late-bg)',
+                    border: '1px solid var(--late)',
+                    color: 'var(--late)'
                   }}
                 >
                   {authError}
@@ -259,10 +275,10 @@ export const StartPage: React.FC<StartPageProps> = ({
                     padding: '0.65rem 0.85rem',
                     borderRadius: 'var(--radius-sm)',
                     marginBottom: '1rem',
-                    fontSize: '0.82rem',
-                    background: 'rgba(34, 197, 94, 0.1)',
-                    border: '1px solid var(--success)',
-                    color: 'var(--success)'
+                    fontSize: '0.8125rem',
+                    background: 'var(--paid-bg)',
+                    border: '1px solid var(--paid)',
+                    color: 'var(--paid)'
                   }}
                 >
                   {authFeedback}

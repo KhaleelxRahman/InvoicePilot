@@ -241,6 +241,8 @@ export interface InvoiceDto {
   taxMinor: number;
   totalMinor: number;
   paidAmountMinor?: number;
+  isCompleted?: boolean;
+  completedAt?: string;
   issueDate: string;
   dueDate: string;
   notes?: string;

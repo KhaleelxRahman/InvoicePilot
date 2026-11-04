@@ -255,6 +255,8 @@ export interface InvoiceDto {
   taxMinor: number;
   totalMinor: number;
   paidAmountMinor?: number;
+  isCompleted?: boolean;
+  completedAt?: string;
   issueDate: string;
   dueDate: string;
   notes?: string;
@@ -1473,6 +1475,45 @@ export function App() {
     }
   }
 
+  const [completeSubmitting, setCompleteSubmitting] = useState<boolean>(false);
+  const [completeError, setCompleteError] = useState<string | null>(null);
+  const [completeSuccess, setCompleteSuccess] = useState<string | null>(null);
+
+  async function handleMarkInvoiceCompleted(invoiceId: string) {
+    setCompleteSubmitting(true);
+    setCompleteError(null);
+    setCompleteSuccess(null);
+    try {
+      const res = await fetch(`/api/invoices/${encodeURIComponent(invoiceId)}/complete`, {
+        method: 'POST',
+        headers: {
+          ...getAuthHeaders(),
+          'Content-Type': 'application/json'
+        }
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        invoice?: InvoiceDto;
+        error?: { message: string };
+      };
+      if (!res.ok) {
+        throw new Error(data.error?.message ?? `Failed to mark completed (HTTP ${res.status})`);
+      }
+
+      setCompleteSuccess(`Invoice ${data.invoice?.invoiceNumber ?? invoiceId} marked as operationally completed.`);
+      if (data.invoice) {
+        setSelectedInvoice(data.invoice);
+      }
+      void loadInvoices();
+      void loadActivities();
+      void loadNotifications();
+    } catch (err) {
+      setCompleteError(err instanceof Error ? err.message : 'Failed to mark invoice as completed.');
+    } finally {
+      setCompleteSubmitting(false);
+    }
+  }
+
   async function loadInvoiceDetail(invoiceId: string) {
     setInvoicesError(null);
     try {
@@ -2401,6 +2442,7 @@ export function App() {
               ? 'SKIP'
               : `0${onboarding?.currentStep ?? 1}`
           }
+          currentMode={currentMode}
         />
 
         <main id="main-workspace" className="ledger-sheet" tabIndex={-1}>
@@ -2418,14 +2460,29 @@ export function App() {
                 padding: '0.65rem 1rem',
                 backgroundColor: 'var(--highlight)',
                 color: 'var(--highlight-ink)',
-                border: '1px solid rgba(217, 119, 6, 0.25)',
+                border: '1px solid var(--caution)',
                 borderRadius: 'var(--radius-sm)',
                 marginBottom: '1.25rem',
-                fontSize: '0.85rem'
+                fontSize: '0.875rem'
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <span aria-hidden="true">💡</span>
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 20 20"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                  style={{ flexShrink: 0, color: 'var(--caution)' }}
+                >
+                  <circle cx="10" cy="10" r="8" />
+                  <line x1="10" y1="9" x2="10" y2="14" />
+                  <circle cx="10" cy="6.5" r="0.75" fill="currentColor" />
+                </svg>
                 <span>
                   <strong>Demo Mode (PayPal Sandbox):</strong> You are exploring with sample data. Sign in or register to manage your real business invoices.
                 </span>
@@ -2467,7 +2524,7 @@ export function App() {
                     Financial Workspace Overview
                   </h2>
                   <p className="sheet-lead">
-                    Real-time receivables, attention queue, cash-flow projections, and aging insights.
+                    Real-time receivables, attention queue, and payment activity.
                   </p>
                 </div>
                 <div className="btn-row">
@@ -2541,12 +2598,12 @@ export function App() {
                       <h2
                         className="home-statement-headline serif-document"
                         data-testid="home-summary-statement"
-                        style={{ margin: '0.25rem 0 1rem 0', fontSize: '1.65rem' }}
+                        style={{ margin: '0.25rem 0 1rem 0', fontSize: '1.75rem' }}
                       >
                         {headlineSentence}
                       </h2>
 
-                      <h3 style={{ margin: '1rem 0 0.5rem 0', fontSize: '1.1rem' }}>Needs your attention</h3>
+                      <h3 style={{ margin: '1rem 0 0.5rem 0', fontSize: '1.125rem' }}>Needs your attention</h3>
                       <div className="ledger-table-wrap" data-testid="home-needs-attention-table">
                         {needsAttention.length === 0 && pendingReminders.length === 0 ? (
                           <div className="empty-state-box" style={{ padding: '1rem' }}>
@@ -2636,309 +2693,6 @@ export function App() {
                           </table>
                         )}
                       </div>
-
-                      <div
-                        className="form-grid tabular-nums"
-                        data-testid="home-aging-summary"
-                        style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--rule)' }}
-                      >
-                        <div>
-                          <strong>Aging 0-30 days:</strong>{' '}
-                          <span>{formatMoneyFromMinor(bucket0_30, 'USD')}</span>
-                        </div>
-                        <div>
-                          <strong>Aging 31-60 days:</strong>{' '}
-                          <span>{formatMoneyFromMinor(bucket31_60, 'USD')}</span>
-                        </div>
-                        <div>
-                          <strong>Aging 60+ days:</strong>{' '}
-                          <span>{formatMoneyFromMinor(bucket60Plus, 'USD')}</span>
-                        </div>
-                        <div>
-                          <strong>Paid past 6 months:</strong>{' '}
-                          <span>{formatMoneyFromMinor(paidPast6Months, 'USD')}</span>
-                        </div>
-                      </div>
-
-                      {/* Stage 12: Grounded Aging Buckets Breakdown (Segregated by Currency) */}
-                      {insights && insights.currenciesPresent.length > 0 && (
-                        <div
-                          className="aging-buckets-panel"
-                          data-testid="aging-buckets-panel"
-                          style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid var(--rule)' }}
-                        >
-                          <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '1rem' }}>
-                            Grounded Receivables Aging (By Currency)
-                          </h4>
-                          {insights.currenciesPresent.map((currency) => {
-                            const aging = insights.agingByCurrency[currency];
-                            if (!aging) return null;
-                            return (
-                              <div key={currency} style={{ marginBottom: '1rem' }}>
-                                <div style={{ fontSize: '0.9rem', marginBottom: '0.25rem' }}>
-                                  <strong>{currency}</strong> — Total Outstanding:{' '}
-                                  <span className="tabular-nums">
-                                    {formatMoneyFromMinor(aging.totalOutstandingMinor, currency)}
-                                  </span>{' '}
-                                  ({aging.totalInvoicesCount} invoices)
-                                </div>
-                                <div
-                                  className="form-grid tabular-nums"
-                                  style={{
-                                    background: 'var(--sheet-2)',
-                                    padding: '0.75rem',
-                                    borderRadius: '4px',
-                                    gap: '0.5rem'
-                                  }}
-                                >
-                                  <div>
-                                    <small style={{ display: 'block', color: 'var(--ink-muted)' }}>
-                                      Current (Not Due)
-                                    </small>
-                                    <strong>
-                                      {formatMoneyFromMinor(
-                                        aging.buckets.current.totalOutstandingMinor,
-                                        currency
-                                      )}
-                                    </strong>{' '}
-                                    <span style={{ fontSize: '0.8rem', color: 'var(--ink-muted)' }}>
-                                      ({aging.buckets.current.count})
-                                    </span>
-                                  </div>
-                                  <div>
-                                    <small style={{ display: 'block', color: 'var(--ink-muted)' }}>
-                                      1–30 Days Overdue
-                                    </small>
-                                    <strong>
-                                      {formatMoneyFromMinor(
-                                        aging.buckets.days1_30.totalOutstandingMinor,
-                                        currency
-                                      )}
-                                    </strong>{' '}
-                                    <span style={{ fontSize: '0.8rem', color: 'var(--ink-muted)' }}>
-                                      ({aging.buckets.days1_30.count})
-                                    </span>
-                                  </div>
-                                  <div>
-                                    <small style={{ display: 'block', color: 'var(--ink-muted)' }}>
-                                      31–60 Days Overdue
-                                    </small>
-                                    <strong>
-                                      {formatMoneyFromMinor(
-                                        aging.buckets.days31_60.totalOutstandingMinor,
-                                        currency
-                                      )}
-                                    </strong>{' '}
-                                    <span style={{ fontSize: '0.8rem', color: 'var(--ink-muted)' }}>
-                                      ({aging.buckets.days31_60.count})
-                                    </span>
-                                  </div>
-                                  <div>
-                                    <small style={{ display: 'block', color: 'var(--ink-muted)' }}>
-                                      61–90 Days Overdue
-                                    </small>
-                                    <strong>
-                                      {formatMoneyFromMinor(
-                                        aging.buckets.days61_90.totalOutstandingMinor,
-                                        currency
-                                      )}
-                                    </strong>{' '}
-                                    <span style={{ fontSize: '0.8rem', color: 'var(--ink-muted)' }}>
-                                      ({aging.buckets.days61_90.count})
-                                    </span>
-                                  </div>
-                                  <div>
-                                    <small style={{ display: 'block', color: 'var(--late)' }}>
-                                      90+ Days Overdue
-                                    </small>
-                                    <strong style={{ color: 'var(--late)' }}>
-                                      {formatMoneyFromMinor(
-                                        aging.buckets.days90Plus.totalOutstandingMinor,
-                                        currency
-                                      )}
-                                    </strong>{' '}
-                                    <span style={{ fontSize: '0.8rem', color: 'var(--ink-muted)' }}>
-                                      ({aging.buckets.days90Plus.count})
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Stage 12: 30-Day Cash-Flow Forecast Card */}
-                    <div
-                      className="home-attention-box"
-                      data-testid="cash-flow-forecast-card"
-                      style={{ marginBottom: '1.5rem' }}
-                    >
-                      <span
-                        className="approval-slip-highlight"
-                        data-testid="forecast-estimate-badge"
-                        style={{ display: 'inline-block', marginBottom: '0.5rem' }}
-                      >
-                        ESTIMATE / PROJECTION — 30-DAY CASH-FLOW FORECAST
-                      </span>
-                      <h3 style={{ margin: '0.25rem 0 0.5rem 0', fontSize: '1.25rem' }}>
-                        30-Day Cash-Flow Projections
-                      </h3>
-                      <p
-                        className="sheet-lead"
-                        data-testid="forecast-disclaimer"
-                        style={{ margin: '0 0 1rem 0', fontSize: '0.875rem' }}
-                      >
-                        {insights?.projectionNotice ??
-                          'Projections are probability-weighted estimates based on client payment history and scheduled dues. They do not constitute guaranteed revenue.'}
-                      </p>
-
-                      {(!insights ||
-                        insights.currenciesPresent.length === 0 ||
-                        Object.values(insights.forecastByCurrency).every(
-                          (f) => f.contractualTotalMinor === 0
-                        )) ? (
-                        <div
-                          className="empty-state-box"
-                          data-testid="forecast-empty-state"
-                          style={{ padding: '1rem' }}
-                        >
-                          No upcoming receivables scheduled in the next 30 days. Projections only reflect real scheduled dues.
-                        </div>
-                      ) : (
-                        <div>
-                          {insights.currenciesPresent.map((curr) => {
-                            const forecast = insights.forecastByCurrency[curr];
-                            if (!forecast) return null;
-                            return (
-                              <div key={curr} style={{ marginBottom: '1.25rem' }}>
-                                <div
-                                  style={{
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'baseline',
-                                    marginBottom: '0.5rem',
-                                    flexWrap: 'wrap',
-                                    gap: '0.5rem'
-                                  }}
-                                >
-                                  <div>
-                                    <strong>{curr} Forecast:</strong> Expected Inflows{' '}
-                                    <span
-                                      className="tabular-nums"
-                                      data-testid={`forecast-expected-${curr}`}
-                                      style={{ color: 'var(--primary)', fontWeight: 'bold' }}
-                                    >
-                                      {formatMoneyFromMinor(forecast.expectedTotalMinor, curr)}
-                                    </span>{' '}
-                                    (Contractual:{' '}
-                                    <span className="tabular-nums">
-                                      {formatMoneyFromMinor(forecast.contractualTotalMinor, curr)}
-                                    </span>
-                                    )
-                                  </div>
-                                  <span
-                                    className="status-pill"
-                                    data-tone="info"
-                                    style={{ fontSize: '0.75rem' }}
-                                  >
-                                    PROJECTION ESTIMATE
-                                  </span>
-                                </div>
-
-                                <div
-                                  style={{
-                                    display: 'grid',
-                                    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                                    gap: '0.75rem'
-                                  }}
-                                >
-                                  {(
-                                    [
-                                      ['days1_7', forecast.windows.days1_7],
-                                      ['days8_14', forecast.windows.days8_14],
-                                      ['days15_21', forecast.windows.days15_21],
-                                      ['days22_30', forecast.windows.days22_30]
-                                    ] as const
-                                  ).map(([key, win]) => (
-                                    <div
-                                      key={key}
-                                      style={{
-                                        background: 'var(--sheet-2)',
-                                        border: '1px solid var(--rule)',
-                                        borderRadius: '4px',
-                                        padding: '0.75rem'
-                                      }}
-                                    >
-                                      <div
-                                        style={{
-                                          display: 'flex',
-                                          justifyContent: 'space-between',
-                                          alignItems: 'center',
-                                          marginBottom: '0.25rem'
-                                        }}
-                                      >
-                                        <small style={{ fontWeight: 'bold' }}>{win.periodLabel}</small>
-                                        <span
-                                          className="status-pill"
-                                          data-tone={
-                                            win.itemCount === 0
-                                              ? 'info'
-                                              : win.inflows.some((i) => i.confidence === 'HIGH')
-                                                ? 'paid'
-                                                : win.inflows.some((i) => i.confidence === 'MEDIUM')
-                                                  ? 'caution'
-                                                  : 'late'
-                                          }
-                                          style={{ fontSize: '0.7rem' }}
-                                        >
-                                          {win.itemCount === 0
-                                            ? 'NO DUES'
-                                            : win.inflows.some((i) => i.confidence === 'HIGH')
-                                              ? 'HIGH CONF'
-                                              : win.inflows.some((i) => i.confidence === 'MEDIUM')
-                                                ? 'MED CONF'
-                                                : 'LOW CONF'}
-                                        </span>
-                                      </div>
-                                      <div style={{ fontSize: '0.8rem', color: 'var(--ink-muted)' }}>
-                                        {win.startDate.slice(5)} to {win.endDate.slice(5)} ({win.itemCount} item{win.itemCount === 1 ? '' : 's'})
-                                      </div>
-                                      <div className="tabular-nums" style={{ marginTop: '0.5rem' }}>
-                                        <div style={{ fontSize: '0.85rem' }}>
-                                          Expected:{' '}
-                                          <strong style={{ color: 'var(--primary)' }}>
-                                            {formatMoneyFromMinor(win.expectedTotalMinor, curr)}
-                                          </strong>
-                                        </div>
-                                        <div style={{ fontSize: '0.75rem', color: 'var(--ink-muted)' }}>
-                                          Scheduled: {formatMoneyFromMinor(win.contractualTotalMinor, curr)}
-                                        </div>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-
-                                {forecast.uncertaintyNotes && forecast.uncertaintyNotes.length > 0 && (
-                                  <ul
-                                    style={{
-                                      margin: '0.5rem 0 0 1rem',
-                                      padding: 0,
-                                      fontSize: '0.78rem',
-                                      color: 'var(--ink-muted)'
-                                    }}
-                                  >
-                                    {forecast.uncertaintyNotes.map((note, idx) => (
-                                      <li key={idx}>{note}</li>
-                                    ))}
-                                  </ul>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
                     </div>
 
                     {/* Stage 12: Slow-Payer Rankings Table */}
@@ -3047,34 +2801,34 @@ export function App() {
                         data-testid="weekly-summary-panel"
                         style={{ marginBottom: '1.5rem' }}
                       >
-                        <h3 style={{ margin: '0 0 0.25rem 0', fontSize: '1.15rem' }}>
+                        <h3 style={{ margin: '0 0 0.25rem 0', fontSize: '1.125rem' }}>
                           Weekly Summary Snapshot (Trailing 7 Days)
                         </h3>
-                        <p style={{ margin: '0 0 0.75rem 0', fontSize: '0.85rem', color: 'var(--ink-muted)' }}>
+                        <p style={{ margin: '0 0 0.75rem 0', fontSize: '0.875rem', color: 'var(--ink-muted)' }}>
                           Observed facts from {insights.weeklySummary.startDate} to {insights.weeklySummary.endDate}.
                         </p>
                         <div className="form-grid tabular-nums" style={{ gap: '1rem' }}>
                           <div>
                             <small style={{ color: 'var(--ink-muted)' }}>Invoices Issued (7d)</small>
-                            <div style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>
+                            <div style={{ fontSize: '1.25rem', fontWeight: 700 }}>
                               {insights.weeklySummary.invoicesIssuedCount}
                             </div>
                           </div>
                           <div>
                             <small style={{ color: 'var(--ink-muted)' }}>Invoices Paid (7d)</small>
-                            <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: 'var(--paid)' }}>
+                            <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--paid)' }}>
                               {insights.weeklySummary.invoicesPaidCount}
                             </div>
                           </div>
                           <div>
                             <small style={{ color: 'var(--ink-muted)' }}>Invoices Overdue (7d)</small>
-                            <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: 'var(--late)' }}>
+                            <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--late)' }}>
                               {insights.weeklySummary.invoicesOverdueCount}
                             </div>
                           </div>
                           <div>
                             <small style={{ color: 'var(--ink-muted)' }}>Reminders Sent (7d)</small>
-                            <div style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>
+                            <div style={{ fontSize: '1.25rem', fontWeight: 700 }}>
                               {insights.weeklySummary.remindersSentCount}
                             </div>
                           </div>
@@ -3573,6 +3327,16 @@ export function App() {
                           <tr key={inv.id} data-testid={`invoice-row-${inv.invoiceNumber}`}>
                             <td className="tabular-nums">
                               <strong>{inv.invoiceNumber}</strong>
+                              {inv.isCompleted && (
+                                <span
+                                  className="status-pill"
+                                  data-tone="paid"
+                                  style={{ display: 'inline-block', marginLeft: '0.4rem', fontSize: '0.6875rem' }}
+                                  data-testid={`row-completed-${inv.invoiceNumber}`}
+                                >
+                                  ✓ Done
+                                </span>
+                              )}
                             </td>
                             <td>
                               {clientObj ? clientObj.fullName : inv.clientId}
@@ -3712,6 +3476,10 @@ export function App() {
                   partialPaymentError={partialPaymentError}
                   partialPaymentSuccess={partialPaymentSuccess}
                   handleRecordPartialPayment={handleRecordPartialPayment}
+                  onMarkCompleted={handleMarkInvoiceCompleted}
+                  completeSubmitting={completeSubmitting}
+                  completeError={completeError}
+                  completeSuccess={completeSuccess}
                 />
               )}
             </section>
@@ -4681,7 +4449,7 @@ export function App() {
                     Workspace Settings
                   </h2>
                   <p className="sheet-lead">
-                    Manage business details, PayPal Sandbox integration, agent safety limits, theme appearance, and export workspace data.
+                    Manage your business profile, PayPal connection, preferences, and data.
                   </p>
                 </div>
               </div>
@@ -4721,7 +4489,7 @@ export function App() {
                   onClick={() => setActiveSettingsTab('business')}
                   style={{ fontWeight: activeSettingsTab === 'business' ? 600 : 400 }}
                 >
-                  Account &amp; business
+                  Business profile
                 </button>
                 <button
                   type="button"
@@ -4741,7 +4509,7 @@ export function App() {
                   onClick={() => setActiveSettingsTab('agent')}
                   style={{ fontWeight: activeSettingsTab === 'agent' ? 600 : 400 }}
                 >
-                  Agent &amp; safety limits
+                  Preferences &amp; limits
                 </button>
                 <button
                   type="button"
@@ -4774,7 +4542,7 @@ export function App() {
                   }}
                   style={{ fontWeight: activeSettingsTab === 'developer' ? 600 : 400 }}
                 >
-                  Developer &amp; webhooks
+                  Advanced
                 </button>
               </div>
 
@@ -5096,10 +4864,10 @@ export function App() {
                   >
                     <div>
                       <h3 style={{ margin: 0 }} className="serif-document">
-                        Developer Tools &amp; PayPal Webhook Events
+                        Advanced Settings &amp; Webhook Diagnostics
                       </h3>
                       <p style={{ fontSize: '0.875rem', color: 'var(--ink-muted)', margin: '0.25rem 0 0 0' }}>
-                        Inspect verified incoming PayPal webhook notifications, signature statuses, and raw JSON payloads.
+                        Inspect verified incoming PayPal webhook events, signature statuses, and raw payload data.
                       </p>
                     </div>
                     <button
@@ -5121,9 +4889,9 @@ export function App() {
                       </span>
                     </div>
                     <div>
-                      <strong>API Architecture:</strong>{' '}
+                      <strong>Payment API:</strong>{' '}
                       <span className="status-pill" data-tone="paid">
-                        Direct PayPal REST v2 (D-005)
+                        PayPal REST API (Sandbox)
                       </span>
                     </div>
                     <div>

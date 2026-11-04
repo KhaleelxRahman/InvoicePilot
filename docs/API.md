@@ -57,6 +57,8 @@ Proposed contract. Routes must be reconciled with the actual server before imple
 | DELETE | `/api/templates/:id` | Delete custom line item preset template for owner | VERIFIED (Stage 14 — 2026-11-01; `tests/unit/stage14RemainingScope.test.ts` & `tests/e2e/stage14-remaining-scope.spec.ts`) |
 | GET | `/api/webhooks/paypal/events` | List verified incoming PayPal webhook events for developer inspection | VERIFIED (Stage 14 — 2026-11-01; `tests/unit/stage14RemainingScope.test.ts` & `tests/e2e/stage14-remaining-scope.spec.ts`) |
 | POST | `/api/account/delete` | Permanent cascading deletion of real user data; safe deterministic reset for demo tenant | VERIFIED (Stage 14 — 2026-11-01; `tests/unit/stage14RemainingScope.test.ts` & `tests/e2e/stage14-remaining-scope.spec.ts`) |
+| POST | `/api/invoices/:id/complete` (`/api/invoices/:id/mark-completed`) | Mark invoice as operationally completed; validates non-cancelled state, blocks duplicate completion, enforces owner isolation, and records audit log | VERIFIED (Stage 15 — 2026-11-04; `tests/unit/stage15InvoiceCompletion.test.ts` & `tests/e2e/stage10-core-pages.spec.ts`) |
+| GET | `/api/invoices/:id/pdf` | Download official PDF copy of invoice with verified business & client details, items, tax, totals, and statuses | VERIFIED (Stage 16 — 2026-11-04; `tests/unit/invoicePdf.test.ts` & `tests/e2e/stage05-conventional-workflow.spec.ts`) |
 
 These routes are suggestions, not requirements to use this exact shape. Avoid duplicate endpoints that weaken the approval boundary.
 
