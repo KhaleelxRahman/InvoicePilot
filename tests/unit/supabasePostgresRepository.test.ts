@@ -592,4 +592,100 @@ describe('Supabase PostgreSQL Repository Engine & Integration', () => {
     expect(getActionRes.status).toBe(200);
     expect(getActionRes.body.action.state).toBe('APPROVED');
   });
+
+  // =========================================================================
+  // 10. Supabase PostgreSQL JSONB pending_actions Regression Test
+  // =========================================================================
+  it('successfully creates and retrieves approval slips against PostgreSQL schema with JSONB payload_json column via POST /api/invoices/:id/approval-request', async () => {
+    const memDb = newDb({ autoCreateForeignKeyIndices: true });
+    memDb.public.registerFunction({
+      name: 'length',
+      args: [DataType.text],
+      returns: DataType.integer,
+      implementation: (str: string) => (str ? str.length : 0)
+    });
+    const ddl = fs.readFileSync(path.resolve(process.cwd(), 'migrations/001_initial_supabase_schema.sql'), 'utf-8');
+    memDb.public.query(ddl);
+
+    const { Pool } = memDb.adapters.createPg();
+    const pgPool = new Pool();
+    const poolAdapter = new PostgresPoolAdapter(pgPool);
+    const asyncRepo = new AsyncInvoicePilotRepository(poolAdapter);
+    const config = loadAppConfig({
+      DATABASE_URL: 'postgresql://mock.supabase.internal:6543/postgres',
+      PAYPAL_MODE: 'sandbox',
+      APP_ENV: 'test'
+    }, { loadDotEnvFile: false });
+    const app = createApp(config, undefined, asyncRepo as any);
+
+    // Register user
+    const regRes = await request(app)
+      .post('/api/auth/register')
+      .send({
+        email: 'slip.tester@example.com',
+        password: 'Password123!',
+        displayName: 'Slip Tester'
+      });
+    expect(regRes.status).toBe(201);
+    const token = regRes.body.sessionToken;
+
+    // Create client
+    const clientRes = await request(app)
+      .post('/api/clients')
+      .set('x-session-token', token)
+      .send({
+        fullName: 'Acme Slip Corp',
+        email: 'billing@acmeslip.example.com',
+        defaultCurrency: 'USD'
+      });
+    expect(clientRes.status).toBe(201);
+    const clientId = clientRes.body.client.id;
+
+    // Create draft invoice
+    const invoiceRes = await request(app)
+      .post('/api/invoices')
+      .set('x-session-token', token)
+      .send({
+        clientId,
+        invoiceNumber: 'INV-SLIP-001',
+        currencyCode: 'USD',
+        issueDate: '2026-11-01',
+        dueDate: '2026-11-15',
+        items: [
+          {
+            description: 'Engineering Sprint',
+            quantity: 1,
+            unitAmountMinor: 250000,
+            currencyCode: 'USD'
+          }
+        ]
+      });
+    expect(invoiceRes.status).toBe(201);
+    const invoiceId = invoiceRes.body.invoice.id;
+
+    // Call POST /api/invoices/:id/approval-request (the exact live endpoint)
+    const approvalReqRes = await request(app)
+      .post(`/api/invoices/${invoiceId}/approval-request`)
+      .set('x-session-token', token);
+    expect(approvalReqRes.status).toBe(201);
+    expect(approvalReqRes.body.action).toBeDefined();
+    expect(approvalReqRes.body.action.state).toBe('PENDING_APPROVAL');
+    expect(approvalReqRes.body.action.targetInvoiceId).toBe(invoiceId);
+    expect(approvalReqRes.body.slip).toBeDefined();
+    expect(approvalReqRes.body.slip.invoiceNumber).toBe('INV-SLIP-001');
+    expect(approvalReqRes.body.invoice).toBeDefined();
+
+    // Verify raw query in PostgreSQL database directly confirms payload_json is stored as JSONB
+    const rawResult = await pgPool.query('SELECT payload_json FROM pending_actions WHERE id = $1', [approvalReqRes.body.action.id]);
+    expect(rawResult.rows.length).toBe(1);
+    expect(rawResult.rows[0].payload_json).toBeDefined();
+
+    // Verify GET /api/actions returns parsed slip
+    const listActionsRes = await request(app)
+      .get(`/api/actions?invoiceId=${invoiceId}`)
+      .set('x-session-token', token);
+    expect(listActionsRes.status).toBe(200);
+    expect(listActionsRes.body.actions.length).toBeGreaterThanOrEqual(1);
+    expect(listActionsRes.body.actions[0].slip.invoiceNumber).toBe('INV-SLIP-001');
+  });
 });

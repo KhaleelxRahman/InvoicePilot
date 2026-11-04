@@ -1218,7 +1218,7 @@ export class AsyncInvoicePilotRepository {
       .prepare(
         `INSERT INTO pending_actions (id, owner_user_id, action_type, target_invoice_id,
                                      state, payload_json, payload_hash, idempotency_key, expires_at, created_at, updated_at)
-         VALUES (?, ?, 'SEND_INVOICE', ?, 'PENDING_APPROVAL', ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, 'SEND_INVOICE', ?, 'PENDING_APPROVAL', CAST(? AS JSONB), ?, ?, ?, ?, ?)`
       )
       .run(
         actionId,
@@ -1261,7 +1261,10 @@ export class AsyncInvoicePilotRepository {
       actionType: row.action_type,
       targetInvoiceId: row.target_invoice_id,
       state: row.state as PendingActionState,
-      payloadJson: row.payload_json,
+      payloadJson:
+        typeof row.payload_json === 'string'
+          ? row.payload_json
+          : JSON.stringify(row.payload_json ?? {}),
       payloadHash: row.payload_hash,
       idempotencyKey: row.idempotency_key,
       expiresAt: row.expires_at,
@@ -1289,7 +1292,10 @@ export class AsyncInvoicePilotRepository {
       actionType: row.action_type,
       targetInvoiceId: row.target_invoice_id,
       state: row.state as PendingActionState,
-      payloadJson: row.payload_json,
+      payloadJson:
+        typeof row.payload_json === 'string'
+          ? row.payload_json
+          : JSON.stringify(row.payload_json ?? {}),
       payloadHash: row.payload_hash,
       idempotencyKey: row.idempotency_key,
       expiresAt: row.expires_at,
