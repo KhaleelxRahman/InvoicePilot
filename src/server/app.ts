@@ -2591,12 +2591,6 @@ export function createApiApp(
       error: {
         code: 'INTERNAL_ERROR',
         message: 'An unexpected error occurred. Please try again.',
-        details:
-          config.appEnv !== 'production'
-            ? err instanceof Error
-              ? err.message
-              : String(err)
-            : undefined,
         requestId
       }
     });
