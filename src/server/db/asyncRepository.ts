@@ -1879,6 +1879,7 @@ export class AsyncInvoicePilotRepository {
 
   public async resetAndSeedDemoTenant(): Promise<{
     user: UserRecord;
+    demoUser: UserRecord;
     settings: SettingsRecord;
     clients: ClientRecord[];
     invoices: InvoiceRecord[];
@@ -1954,7 +1955,7 @@ export class AsyncInvoicePilotRepository {
 
       const user = (await this.getUserById(DEMO_TENANT_USER_ID))!;
       const settings = (await this.getSettings(DEMO_TENANT_USER_ID))!;
-      return { user, settings, clients: [c1, c2], invoices: [inv1] };
+      return { user, demoUser: user, settings, clients: [c1, c2], invoices: [inv1] };
     });
   }
 }

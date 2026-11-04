@@ -525,8 +525,8 @@ export function createApiApp(
       let demoUser = await repo.getUserById(DEMO_TENANT_USER_ID);
 
       if (!demoUser || body.resetFirst === true) {
-        const seeded = await repo.resetAndSeedDemoTenant();
-        demoUser = seeded.demoUser;
+        const seeded = (await repo.resetAndSeedDemoTenant()) as any;
+        demoUser = seeded.demoUser ?? seeded.user ?? (await repo.getUserById(DEMO_TENANT_USER_ID));
       }
 
       const { session, rawToken } = await repo.createSession(demoUser.id);
@@ -613,14 +613,15 @@ export function createApiApp(
 
   app.post('/api/demo/reset', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const result = await repo.resetAndSeedDemoTenant();
-      const { session, rawToken } = await repo.createSession(result.demoUser.id);
+      const result = (await repo.resetAndSeedDemoTenant()) as any;
+      const targetUser = result.demoUser ?? result.user ?? (await repo.getUserById(DEMO_TENANT_USER_ID));
+      const { session, rawToken } = await repo.createSession(targetUser.id);
       setSessionCookie(res, rawToken, config);
 
       res.status(200).json({
         ok: true,
         message: 'Demo tenant reset successfully. Real user accounts were preserved.',
-        demoUser: result.demoUser,
+        demoUser: targetUser,
         token: rawToken,
         clientsCount: result.clients.length,
         invoicesCount: result.invoices.length
@@ -2585,6 +2586,7 @@ export function createApiApp(
       return;
     }
 
+    console.error(`[API Error ${requestId}]:`, err);
     res.status(500).json({
       error: {
         code: 'INTERNAL_ERROR',
