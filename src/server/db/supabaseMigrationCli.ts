@@ -28,6 +28,13 @@ export async function runSupabaseMigration(databaseUrl?: string): Promise<{ succ
     console.log('[Supabase Migration] Applying initial schema and deterministic seed...');
     await client.query(sql);
 
+    const sqlPath2 = path.resolve(process.cwd(), 'migrations/002_invoice_completed_flag.sql');
+    if (fs.existsSync(sqlPath2)) {
+      console.log('[Supabase Migration] Applying Migration 002 (is_completed flag)...');
+      const sql2 = fs.readFileSync(sqlPath2, 'utf-8');
+      await client.query(sql2);
+    }
+
     const res = await client.query(`
       SELECT table_name
       FROM information_schema.tables

@@ -47,9 +47,6 @@ function parseCookies(cookieHeader?: string): Record<string, string> {
 }
 
 function resolveSessionToken(req: Request): string | null {
-  const queryToken = typeof req.query?.token === 'string' ? req.query.token.trim() : null;
-  if (queryToken) return queryToken;
-
   const headerToken = req.header('x-session-token')?.trim();
   if (headerToken) return headerToken;
 

@@ -197,7 +197,7 @@ describe('Stage 16 — Invoice PDF Generation and Download Workflow', () => {
         ]
       });
 
-      // 2. Fetch PDF via Authorization header
+      // 2. Fetch PDF via Authorization header (Bearer)
       const res = await request(app)
         .get(`/api/invoices/${invoice.id}/pdf`)
         .set('Authorization', `Bearer ${session.rawToken}`);
@@ -213,13 +213,31 @@ describe('Stage 16 — Invoice PDF Generation and Download Workflow', () => {
       expect(res.body.toString('binary')).toContain('INV-PDF-HTTP-001');
       expect(res.body.toString('binary')).toContain('Client Partner');
 
-      // 3. Fetch PDF via query parameter ?token=<token>
+      // 3. Fetch PDF via x-session-token header
+      const headerRes = await request(app)
+        .get(`/api/invoices/${invoice.id}/pdf`)
+        .set('x-session-token', session.rawToken);
+
+      expect(headerRes.status).toBe(200);
+      expect(headerRes.header['content-type']).toBe('application/pdf');
+      expect(headerRes.body.toString('binary').startsWith('%PDF-1.4')).toBe(true);
+
+      // 4. Fetch PDF via secure HttpOnly session cookie
+      const cookieRes = await request(app)
+        .get(`/api/invoices/${invoice.id}/pdf`)
+        .set('Cookie', `invoicepilot_session=${session.rawToken}`);
+
+      expect(cookieRes.status).toBe(200);
+      expect(cookieRes.header['content-type']).toBe('application/pdf');
+      expect(cookieRes.body.toString('binary').startsWith('%PDF-1.4')).toBe(true);
+
+      // 5. SECURITY REGRESSION: Reject insecure URL query token (?token=...)
       const queryRes = await request(app)
         .get(`/api/invoices/${invoice.id}/pdf?token=${session.rawToken}`);
 
-      expect(queryRes.status).toBe(200);
-      expect(queryRes.header['content-type']).toBe('application/pdf');
-      expect(queryRes.body.toString('binary').startsWith('%PDF-1.4')).toBe(true);
+      expect(queryRes.status).toBe(401);
+      expect(queryRes.body.error?.code).toBe('UNAUTHORIZED');
+      expect(queryRes.body.error?.message).toContain('Authentication required');
     });
 
     it('rejects unauthenticated requests with 401 UNAUTHORIZED', async () => {

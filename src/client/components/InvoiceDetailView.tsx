@@ -58,7 +58,10 @@ export const InvoiceDetailView: React.FC<InvoiceDetailViewProps> = ({
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
       }
-      const res = await fetch(`/api/invoices/${selectedInvoice.id}/pdf`, { headers });
+      const res = await fetch(`/api/invoices/${selectedInvoice.id}/pdf`, {
+        headers,
+        credentials: 'same-origin'
+      });
       if (!res.ok) {
         throw new Error(`Failed to generate invoice PDF (${res.status})`);
       }
