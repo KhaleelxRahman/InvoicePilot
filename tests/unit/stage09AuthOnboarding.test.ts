@@ -356,13 +356,9 @@ describe('Stage 09 — Authentication, Demo Isolation, and Onboarding', () => {
       const demoClientsBefore = repo.listClientsForOwner(DEMO_TENANT_USER_ID);
       expect(demoClientsBefore.length).toBeGreaterThan(0);
 
-      // Trigger Demo Reset
-      const resetRes = await request(app)
-        .post('/api/demo/reset')
-        .send({});
-
-      expect(resetRes.status).toBe(200);
-      expect(resetRes.body.ok).toBe(true);
+      // Trigger Demo Reset on repository fixture directly
+      const resetResult = repo.resetAndSeedDemoTenant();
+      expect(resetResult.clients.length).toBeGreaterThan(0);
 
       // Verify Real User's client is still intact and accessible
       const realClientCheck = await request(app)

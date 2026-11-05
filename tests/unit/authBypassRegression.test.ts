@@ -150,36 +150,50 @@ describe('Phase 1 Security Regression — Unauthenticated Owner Selection & IDOR
     expect(res.body.clients).toBeUndefined();
   });
 
-  it('preserves explicit demo login via POST /api/auth/demo and enables authenticated demo operations', async () => {
+  it('authenticates registered users via POST /api/auth/login and enables authenticated operations', async () => {
     const { app } = createTestSetup();
 
-    // 1. Explicit demo login
-    const demoLoginRes = await request(app)
-      .post('/api/auth/demo')
-      .send({});
+    // 1. Register a test user
+    const regRes = await request(app)
+      .post('/api/auth/register')
+      .send({
+        email: 'authenticated.pilot@example.com',
+        displayName: 'Pilot Studio',
+        password: 'ValidPassword123!'
+      });
 
-    expect(demoLoginRes.status).toBe(200);
-    expect(demoLoginRes.body.user.id).toBe(DEMO_TENANT_USER_ID);
-    expect(demoLoginRes.body.isDemo).toBe(true);
-    expect(demoLoginRes.body.sessionToken).toBeDefined();
+    expect(regRes.status).toBe(201);
+    expect(regRes.body.user.email).toBe('authenticated.pilot@example.com');
+    expect(regRes.body.sessionToken).toBeDefined();
 
-    const sessionToken = demoLoginRes.body.sessionToken;
+    // 2. Explicit login
+    const loginRes = await request(app)
+      .post('/api/auth/login')
+      .send({
+        email: 'authenticated.pilot@example.com',
+        password: 'ValidPassword123!'
+      });
+
+    expect(loginRes.status).toBe(200);
+    expect(loginRes.body.user.email).toBe('authenticated.pilot@example.com');
+    expect(loginRes.body.sessionToken).toBeDefined();
+
+    const sessionToken = loginRes.body.sessionToken;
 
     // Cookie is also set
-    const cookies = demoLoginRes.headers['set-cookie'];
+    const cookies = loginRes.headers['set-cookie'];
     expect(cookies).toBeDefined();
     expect(cookies[0]).toMatch(/invoicepilot_session=/);
 
-    // 2. Query /api/auth/me with explicit demo token
+    // 3. Query /api/auth/me with explicit session token
     const meRes = await request(app)
       .get('/api/auth/me')
       .set('Authorization', `Bearer ${sessionToken}`);
 
     expect(meRes.status).toBe(200);
-    expect(meRes.body.user.id).toBe(DEMO_TENANT_USER_ID);
-    expect(meRes.body.isDemo).toBe(true);
+    expect(meRes.body.user.email).toBe('authenticated.pilot@example.com');
 
-    // 3. Query /api/clients with explicit demo token
+    // 4. Query /api/clients with explicit session token
     const clientsRes = await request(app)
       .get('/api/clients')
       .set('Authorization', `Bearer ${sessionToken}`);
@@ -187,7 +201,7 @@ describe('Phase 1 Security Regression — Unauthenticated Owner Selection & IDOR
     expect(clientsRes.status).toBe(200);
     expect(Array.isArray(clientsRes.body.clients)).toBe(true);
 
-    // 4. Logout invalidates demo session
+    // 5. Logout invalidates session
     const logoutRes = await request(app)
       .post('/api/auth/logout')
       .set('Authorization', `Bearer ${sessionToken}`);
@@ -195,7 +209,7 @@ describe('Phase 1 Security Regression — Unauthenticated Owner Selection & IDOR
     expect(logoutRes.status).toBe(200);
     expect(logoutRes.body.ok).toBe(true);
 
-    // 5. Subsequent request with invalidated token returns 401
+    // 6. Subsequent request with invalidated token returns 401
     const postLogoutRes = await request(app)
       .get('/api/auth/me')
       .set('Authorization', `Bearer ${sessionToken}`);

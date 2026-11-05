@@ -30,7 +30,6 @@ export interface HeaderProps {
   handleMarkNotificationRead: (id: string) => Promise<void>;
   currentUser: UserDto | null;
   authLoading: boolean;
-  handleDemoReset: () => Promise<void>;
   setAuthModalOpen: (open: boolean) => void;
   setAuthError: (err: string | null) => void;
   handleLogout: () => Promise<void>;
@@ -60,7 +59,6 @@ export const Header: React.FC<HeaderProps> = ({
   handleMarkNotificationRead,
   currentUser,
   authLoading,
-  handleDemoReset,
   setAuthModalOpen,
   setAuthError,
   handleLogout,
@@ -311,7 +309,6 @@ export const Header: React.FC<HeaderProps> = ({
 
           <div
             className="user-status-badge"
-            data-demo={currentUser?.isDemo ? 'true' : 'false'}
             data-testid="current-user-badge"
             role="status"
           >
@@ -328,28 +325,7 @@ export const Header: React.FC<HeaderProps> = ({
             <span style={{ fontSize: '0.82rem', fontWeight: 600 }}>
               {currentUser ? currentUser.displayName : 'Guest'}
             </span>
-            {currentUser?.isDemo && (
-              <span
-                className="status-pill"
-                data-tone="caution"
-                style={{ fontSize: '0.75rem', padding: '0.1rem 0.45rem' }}
-              >
-                Demo
-              </span>
-            )}
           </div>
-
-          {currentUser?.isDemo && (
-            <button
-              type="button"
-              className="secondary-btn"
-              data-testid="reset-demo-btn"
-              disabled={authLoading}
-              onClick={() => void handleDemoReset()}
-            >
-              Reset demo
-            </button>
-          )}
 
           <button
             type="button"
@@ -360,7 +336,7 @@ export const Header: React.FC<HeaderProps> = ({
               setAuthError(null);
             }}
           >
-            {currentUser && !currentUser.isDemo ? 'Account' : 'Sign in'}
+            {currentUser ? 'Account' : 'Sign in'}
           </button>
 
           {currentUser && (

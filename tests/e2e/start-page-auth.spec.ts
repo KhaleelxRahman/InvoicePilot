@@ -26,8 +26,11 @@ test.describe('Professional Sign-In & First-Run Experience E2E', () => {
     await expect(page.getByRole('heading', { name: 'InvoicePilot', level: 1 })).toBeVisible();
     await expect(page.getByTestId('auth-card')).toBeVisible();
     await expect(page.getByTestId('provider-mode-badge')).toBeVisible();
-    await expect(page.getByTestId('enter-demo-btn')).toBeVisible();
     await expect(page.getByTestId('health-status-value')).toBeVisible();
+
+    // Verify demo buttons/badges are completely absent from the Start Page
+    await expect(page.getByTestId('enter-demo-btn')).toBeHidden();
+    await expect(page.getByTestId('auth-demo-btn')).toBeHidden();
 
     // Verify workspace elements are NOT visible while logged out
     await expect(page.getByTestId('current-user-badge')).toBeHidden();
@@ -87,30 +90,48 @@ test.describe('Professional Sign-In & First-Run Experience E2E', () => {
     await page.getByTestId('logout-btn').click();
     await expect(page.getByTestId('auth-card')).toBeVisible();
 
-    // 9. Test explicit Demo workspace entry from Start Page
-    await page.getByTestId('enter-demo-btn').click();
+    // 9. Validation error on registration with short password
+    await page.getByTestId('auth-tab-register').click();
+    await page.getByTestId('auth-email-input').fill(`short-${uniqueSuffix}@test.com`);
+    await page.getByTestId('auth-displayname-input').fill('Short Pass Tester');
+    await page.getByTestId('auth-password-input').fill('short');
+    // HTML5 minLength / JS validation prevents submission or shows error
+    await page.getByTestId('auth-submit-btn').click();
+    await expect(page.getByTestId('auth-card')).toBeVisible();
 
-    // Verify enters demo workspace
+    // 10. Re-sign in and verify clean empty workspace states & absence of demo UI
+    await page.getByTestId('auth-tab-login').click();
+    await page.getByTestId('auth-email-input').fill(testEmail);
+    await page.getByTestId('auth-password-input').fill(testPassword);
+    await page.getByTestId('auth-submit-btn').click();
+
     await expect(page.getByTestId('auth-card')).toBeHidden();
-    const demoBadge = page.getByTestId('current-user-badge');
-    await expect(demoBadge).toBeVisible();
-    await expect(demoBadge).toContainText('Demo Workspace');
-    await expect(page.getByTestId('reset-demo-btn')).toBeVisible();
+    await expect(page.getByTestId('current-user-badge')).toBeVisible();
 
-    // 10. Demo session can access protected API, and logout clears access
-    const demoApiRes = await page.request.get('/api/clients');
-    expect(demoApiRes.status()).toBe(200);
+    // Verify empty state welcome card is visible on overview
+    await expect(page.getByTestId('overview-welcome-card')).toBeVisible();
+    await expect(page.locator('.demo-announcement-banner')).toBeHidden();
+    await expect(page.getByTestId('reset-demo-btn')).toBeHidden();
 
-    // Logout clears session cookie
+    // Verify user's own data isolation (empty clients list, not sample data)
+    const authedApiRes = await page.request.get('/api/clients');
+    expect(authedApiRes.status()).toBe(200);
+    const authedClients = (await authedApiRes.json()) as { clients: unknown[] };
+    expect(authedClients.clients).toHaveLength(0);
+
+    // 11. Final logout
     await page.getByTestId('logout-btn').click();
     await expect(page.getByTestId('auth-card')).toBeVisible();
 
     const loggedOutApiRes = await page.request.get('/api/clients');
     expect(loggedOutApiRes.status()).toBe(401);
 
-    // Filter non-fatal 401s
+    // Filter non-fatal 401s and offline network messages
     const fatalErrors = consoleErrors.filter(
-      (err) => !err.includes('status of 401') && !err.includes('401 (Unauthorized)')
+      (err) =>
+        !err.includes('status of 401') &&
+        !err.includes('401 (Unauthorized)') &&
+        !err.includes('ERR_INTERNET_DISCONNECTED')
     );
     expect(fatalErrors).toEqual([]);
   });

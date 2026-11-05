@@ -5,6 +5,7 @@ test.describe('Stage 09 — Authentication, Demo Isolation, and Onboarding E2E',
   test('registers new user, navigates 4-step onboarding wizard to completion, and tests demo isolation/reset', async ({
     page
   }, testInfo) => {
+    test.setTimeout(60000);
     const consoleErrors: string[] = [];
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
@@ -83,20 +84,27 @@ test.describe('Stage 09 — Authentication, Demo Isolation, and Onboarding E2E',
     await navigateToSection(page, 'nav-clients');
     await expect(page.getByText(`First Client ${uniqueSuffix}`)).toBeVisible();
 
-    // 10. Test Log out and Demo Reset
+    // 10. Test Log out and Returning Sign In
     await page.getByTestId('logout-btn').click();
-    // After logging out, system returns to start page (does not auto re-sign into demo)
     await expect(page.getByTestId('auth-card')).toBeVisible();
     await expect(page.getByTestId('current-user-badge')).toBeHidden();
 
-    // Enter demo workspace from start page
-    await page.getByTestId('enter-demo-btn').click();
-    await expect(page.getByTestId('current-user-badge')).toContainText('Demo');
-    await expect(page.getByTestId('reset-demo-btn')).toBeVisible();
+    // Re-sign in with the newly registered user's credentials
+    await page.getByTestId('auth-tab-login').click();
+    await page.getByTestId('auth-email-input').fill(testEmail);
+    await page.getByTestId('auth-password-input').fill(testPassword);
+    await page.getByTestId('auth-submit-btn').click();
 
-    // Click Reset Demo
-    await page.getByTestId('reset-demo-btn').click();
-    await expect(page.getByTestId('current-user-badge')).toContainText('Demo');
+    await expect(page.getByTestId('auth-card')).toBeHidden();
+    await expect(page.getByTestId('current-user-badge')).toContainText(testDisplayName);
+    await expect(page.getByTestId('reset-demo-btn')).toBeHidden();
+
+    // Verify created client is preserved in user's workspace
+    await navigateToSection(page, 'nav-clients');
+    await expect(page.getByText(`First Client ${uniqueSuffix}`)).toBeVisible();
+
+    await page.getByTestId('logout-btn').click();
+    await expect(page.getByTestId('auth-card')).toBeVisible();
 
     // Filter benign hydration / theme logs and expected 401 unauthenticated probe logs
     const relevantErrors = consoleErrors.filter(

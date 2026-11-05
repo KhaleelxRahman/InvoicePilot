@@ -228,22 +228,21 @@ export function createApiApp(
   );
 
   let repo: any;
-  let demoTenantReady = false;
 
   if (repository) {
     repo = repository;
-    demoTenantReady = Boolean((repo as any).getUserById ? (repo as any).getUserById(DEMO_TENANT_USER_ID) : false);
   } else if (isDbConfigured) {
     const db = openAndMigrateDatabase(config.databaseUrl);
     if (isPostgresDatabaseUrl(config.databaseUrl) && config.databaseUrl !== ':memory-postgres:') {
       repo = new AsyncInvoicePilotRepository(db);
-      demoTenantReady = true;
     } else {
       repo = new InvoicePilotRepository(db);
-      if (!repo.getUserById(DEMO_TENANT_USER_ID)) {
-        repo.resetAndSeedDemoTenant();
+      if (config.appEnv !== 'production' && !process.env.NETLIFY) {
+        const existing = repo.getUserByEmail(DEMO_TENANT_EMAIL);
+        if (!existing || !existing.passwordHash) {
+          repo.resetAndSeedDemoTenant();
+        }
       }
-      demoTenantReady = Boolean(repo.getUserById(DEMO_TENANT_USER_ID));
     }
   } else {
     // Unconfigured repository placeholder for serverless environments awaiting Supabase DATABASE_URL
@@ -332,7 +331,6 @@ export function createApiApp(
         : 'unconfigured-supabase',
       databaseConfigured: dbConfigured,
       schemaVersion: CURRENT_SCHEMA_VERSION,
-      demoTenantReady,
       approvalGateEnforced: true,
       message: dbConfigured
         ? undefined
@@ -520,42 +518,6 @@ export function createApiApp(
     }
   });
 
-  app.post('/api/auth/demo', async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const body = (req.body ?? {}) as Record<string, unknown>;
-      let demoUser = await repo.getUserById(DEMO_TENANT_USER_ID);
-
-      if (!demoUser || body.resetFirst === true) {
-        const seeded = (await repo.resetAndSeedDemoTenant()) as any;
-        demoUser = seeded.demoUser ?? seeded.user ?? (await repo.getUserById(DEMO_TENANT_USER_ID));
-      }
-
-      const { session, rawToken } = await repo.createSession(demoUser.id);
-      setSessionCookie(res, rawToken, config);
-
-      const onboarding = await repo.getOnboardingProgress(demoUser.id);
-
-      await repo.appendActivityLog(demoUser.id, {
-        actorType: 'user',
-        action: 'DEMO_SESSION_STARTED',
-        entityType: 'user',
-        entityId: demoUser.id,
-        result: 'INFO',
-        correlationId: String(res.locals.requestId ?? '')
-      });
-
-      res.status(200).json({
-        user: demoUser,
-        isDemo: true,
-        sessionToken: rawToken,
-        expiresAt: session.expiresAt,
-        onboarding
-      });
-    } catch (err) {
-      next(err);
-    }
-  });
-
   app.get('/api/auth/me', async (req: Request, res: Response, next: NextFunction) => {
     try {
       const rawToken = resolveSessionToken(req);
@@ -607,26 +569,6 @@ export function createApiApp(
       }
       clearSessionCookie(res);
       res.status(200).json({ ok: true, message: 'Logged out successfully.' });
-    } catch (err) {
-      next(err);
-    }
-  });
-
-  app.post('/api/demo/reset', async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const result = (await repo.resetAndSeedDemoTenant()) as any;
-      const targetUser = result.demoUser ?? result.user ?? (await repo.getUserById(DEMO_TENANT_USER_ID));
-      const { session, rawToken } = await repo.createSession(targetUser.id);
-      setSessionCookie(res, rawToken, config);
-
-      res.status(200).json({
-        ok: true,
-        message: 'Demo tenant reset successfully. Real user accounts were preserved.',
-        demoUser: targetUser,
-        token: rawToken,
-        clientsCount: result.clients.length,
-        invoicesCount: result.invoices.length
-      });
     } catch (err) {
       next(err);
     }

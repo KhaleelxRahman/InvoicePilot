@@ -5,7 +5,7 @@ import type { Page } from '@playwright/test';
  */
 export async function ensureWorkspaceLoaded(page: Page): Promise<void> {
   const userBadge = page.getByTestId('current-user-badge');
-  if (await userBadge.isVisible()) {
+  if (await userBadge.isVisible().catch(() => false)) {
     return;
   }
 
@@ -14,18 +14,23 @@ export async function ensureWorkspaceLoaded(page: Page): Promise<void> {
     await userBadge.waitFor({ state: 'visible', timeout: 1500 });
     return;
   } catch {
-    // Session not authenticated, proceed to enter demo if button is present
+    // Session not authenticated, proceed to sign in via real auth form
   }
 
-  const enterDemoBtn = page.getByTestId('enter-demo-btn');
+  const authCard = page.getByTestId('auth-card');
   try {
-    if (await enterDemoBtn.isVisible({ timeout: 1000 })) {
-      await enterDemoBtn.click({ timeout: 3000 });
-      await userBadge.waitFor({ state: 'visible', timeout: 5000 });
+    if (await authCard.isVisible({ timeout: 1500 })) {
+      const loginTab = page.getByTestId('auth-tab-login');
+      if (await loginTab.isVisible().catch(() => false)) {
+        await loginTab.click();
+      }
+      await page.getByTestId('auth-email-input').fill('demo.freelancer@invoicepilot.local');
+      await page.getByTestId('auth-password-input').fill('TestDemo1234!');
+      await page.getByTestId('auth-submit-btn').click();
+      await userBadge.waitFor({ state: 'visible', timeout: 8000 });
     }
   } catch {
-    // If click raced with session check resolution, confirm user badge
-    if (await userBadge.isVisible()) {
+    if (await userBadge.isVisible().catch(() => false)) {
       return;
     }
   }

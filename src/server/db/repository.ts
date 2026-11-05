@@ -3434,14 +3434,47 @@ export class InvoicePilotRepository {
     invoices: InvoiceRecord[];
   } {
     return this.withTransaction(() => {
-      // Delete only demo users (ON DELETE CASCADE removes their settings, clients, invoices, actions, activity, etc.)
-      this.db.prepare('DELETE FROM users WHERE is_demo = 1').run();
+      // Clean child tables first to respect foreign key constraints across SQLite and PostgreSQL
+      const demoUsers = (this.db
+        .prepare('SELECT id FROM users WHERE id = ? OR email = ? OR is_demo = 1')
+        .all(DEMO_TENANT_USER_ID, DEMO_TENANT_EMAIL) as Array<{ id: string }>).map((u) => u.id);
+
+      for (const uid of demoUsers) {
+        this.db.prepare('DELETE FROM sessions WHERE user_id = ?').run(uid);
+        this.db.prepare('DELETE FROM activity_log WHERE owner_user_id = ?').run(uid);
+        this.db.prepare('DELETE FROM notifications WHERE owner_user_id = ?').run(uid);
+        this.db.prepare('DELETE FROM reminders WHERE owner_user_id = ?').run(uid);
+        this.db.prepare('DELETE FROM pending_actions WHERE owner_user_id = ?').run(uid);
+        this.db.prepare('DELETE FROM invoice_items WHERE owner_user_id = ?').run(uid);
+        this.db.prepare('DELETE FROM invoices WHERE owner_user_id = ?').run(uid);
+        try {
+          this.db.prepare('DELETE FROM invoice_templates WHERE owner_user_id = ?').run(uid);
+        } catch {
+          // ignore
+        }
+        try {
+          this.db.prepare('DELETE FROM onboarding_progress WHERE user_id = ?').run(uid);
+        } catch {
+          // ignore
+        }
+        try {
+          this.db.prepare('DELETE FROM chat_threads WHERE user_id = ?').run(uid);
+        } catch {
+          // ignore
+        }
+        this.db.prepare('DELETE FROM clients WHERE owner_user_id = ?').run(uid);
+        this.db.prepare('DELETE FROM settings WHERE user_id = ?').run(uid);
+        this.db.prepare('DELETE FROM paypal_connections WHERE user_id = ?').run(uid);
+      }
+
+      this.db.prepare('DELETE FROM users WHERE id = ? OR email = ? OR is_demo = 1').run(DEMO_TENANT_USER_ID, DEMO_TENANT_EMAIL);
 
       const demoUser = this.createUser({
         id: DEMO_TENANT_USER_ID,
         email: DEMO_TENANT_EMAIL,
-        displayName: 'Aarav Mehta Studio (Demo Workspace)',
-        authProvider: 'demo-session',
+        displayName: 'Aarav Mehta Studio',
+        authProvider: 'session',
+        passwordHash: hashPassword('TestDemo1234!'),
         isDemo: true
       });
 

@@ -17,7 +17,6 @@ export interface AuthModalProps {
   authLoading: boolean;
   handleLogin: (e: React.FormEvent) => Promise<void>;
   handleRegister: (e: React.FormEvent) => Promise<void>;
-  handleDemoLogin: () => Promise<void>;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -36,8 +35,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   setAuthPassword,
   authLoading,
   handleLogin,
-  handleRegister,
-  handleDemoLogin
+  handleRegister
 }) => {
   if (!isOpen) return null;
 
@@ -165,40 +163,26 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             />
           </div>
 
-          <div
-            className="btn-row"
-            style={{ justifyContent: 'space-between' }}
-          >
-            <div className="btn-row">
-              <button
-                type="submit"
-                className="action-btn"
-                data-testid="auth-submit-btn"
-                disabled={authLoading}
-              >
-                {authLoading
-                  ? 'Please wait...'
-                  : authMode === 'login'
-                  ? 'Sign in'
-                  : 'Create account'}
-              </button>
-              <button
-                type="button"
-                className="secondary-btn"
-                data-testid="auth-close-btn"
-                onClick={onClose}
-              >
-                Cancel
-              </button>
-            </div>
+          <div className="btn-row" style={{ marginTop: '0.5rem' }}>
+            <button
+              type="submit"
+              className="action-btn"
+              data-testid="auth-submit-btn"
+              disabled={authLoading}
+            >
+              {authLoading
+                ? 'Please wait...'
+                : authMode === 'login'
+                ? 'Sign in'
+                : 'Create account'}
+            </button>
             <button
               type="button"
               className="secondary-btn"
-              data-testid="auth-demo-btn"
-              disabled={authLoading}
-              onClick={() => void handleDemoLogin()}
+              data-testid="auth-close-btn"
+              onClick={onClose}
             >
-              Continue as demo
+              Cancel
             </button>
           </div>
         </form>

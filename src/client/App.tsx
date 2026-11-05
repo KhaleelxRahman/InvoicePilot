@@ -1070,41 +1070,6 @@ export function App() {
     await performRegister(authEmail, authPassword, authDisplayName);
   }
 
-  async function handleDemoLogin() {
-    setAuthLoading(true);
-    setAuthError(null);
-    setAuthFeedback(null);
-    try {
-      const res = await fetch('/api/auth/demo', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' }
-      });
-      if (!res.ok) {
-        throw new Error('Could not initialize demo session.');
-      }
-      const data = await res.json();
-      setCurrentUser(data.user);
-      setSessionToken(data.sessionToken);
-      setOnboarding(data.onboarding);
-      try {
-        window.localStorage.setItem(
-          'invoicepilot-session-token',
-          data.sessionToken
-        );
-      } catch {}
-      setAuthModalOpen(false);
-      setAuthFeedback('Entered demo workspace.');
-      await loadClients();
-      await loadInvoices();
-      await loadActivities();
-      await loadNotifications();
-    } catch (err) {
-      setAuthError(err instanceof Error ? err.message : 'Demo access failed.');
-    } finally {
-      setAuthLoading(false);
-    }
-  }
-
   async function handleLogout() {
     setAuthLoading(true);
     try {
@@ -1126,32 +1091,6 @@ export function App() {
       setInvoices([]);
       setActivities([]);
       setNotifications([]);
-      setAuthLoading(false);
-    }
-  }
-
-  async function handleDemoReset() {
-    setAuthLoading(true);
-    try {
-      const res = await fetch('/api/demo/reset', {
-        method: 'POST',
-        headers: getAuthHeaders()
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error?.message ?? 'Failed to reset demo tenant.');
-      }
-      if (data.token) {
-        window.localStorage.setItem('invoicepilot-session-token', data.token);
-      }
-      setAuthFeedback(data.message ?? 'Demo tenant reset successfully.');
-      await checkSession();
-      await loadClients();
-      await loadInvoices();
-      await loadActivities();
-    } catch (err) {
-      setAuthError(err instanceof Error ? err.message : 'Demo reset failed.');
-    } finally {
       setAuthLoading(false);
     }
   }
@@ -1657,6 +1596,8 @@ export function App() {
   }
 
   async function handleSendReminder(reminderId: string) {
+    setRemindersError(null);
+    setReminderFeedback('Sending reminder via PayPal Sandbox...');
     try {
       const res = await fetch(`/api/reminders/${encodeURIComponent(reminderId)}/send`, {
         method: 'POST',
@@ -2372,7 +2313,6 @@ export function App() {
         setThemePref={setThemePref}
         onLogin={performLogin}
         onRegister={performRegister}
-        onDemoLogin={handleDemoLogin}
         authLoading={authLoading}
         authError={authError}
         setAuthError={setAuthError}
@@ -2412,7 +2352,6 @@ export function App() {
         currentUser={currentUser}
         authLoading={authLoading}
         handleLogout={handleLogout}
-        handleDemoReset={handleDemoReset}
         setAuthModalOpen={setAuthModalOpen}
         setAuthError={setAuthError}
         currentMode={currentMode}
@@ -2446,75 +2385,6 @@ export function App() {
         />
 
         <main id="main-workspace" className="ledger-sheet" tabIndex={-1}>
-          {currentUser?.isDemo && (
-            <div
-              className="demo-announcement-banner"
-              role="region"
-              aria-label="Demo environment notice"
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                flexWrap: 'wrap',
-                gap: '0.75rem',
-                padding: '0.65rem 1rem',
-                backgroundColor: 'var(--highlight)',
-                color: 'var(--highlight-ink)',
-                border: '1px solid var(--caution)',
-                borderRadius: 'var(--radius-sm)',
-                marginBottom: '1.25rem',
-                fontSize: '0.875rem'
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 20 20"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                  style={{ flexShrink: 0, color: 'var(--caution)' }}
-                >
-                  <circle cx="10" cy="10" r="8" />
-                  <line x1="10" y1="9" x2="10" y2="14" />
-                  <circle cx="10" cy="6.5" r="0.75" fill="currentColor" />
-                </svg>
-                <span>
-                  <strong>Demo Mode (PayPal Sandbox):</strong> You are exploring with sample data. Sign in or register to manage your real business invoices.
-                </span>
-              </div>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <button
-                  type="button"
-                  className="secondary-btn"
-                  style={{ padding: '0.2rem 0.55rem', fontSize: '0.75rem' }}
-                  onClick={() => {
-                    setAuthMode('register');
-                    setAuthModalOpen(true);
-                    setAuthError(null);
-                  }}
-                >
-                  Create account
-                </button>
-                <button
-                  type="button"
-                  className="secondary-btn"
-                  style={{ padding: '0.2rem 0.55rem', fontSize: '0.75rem' }}
-                  onClick={() => {
-                    setAuthMode('login');
-                    setAuthModalOpen(true);
-                    setAuthError(null);
-                  }}
-                >
-                  Sign in
-                </button>
-              </div>
-            </div>
-          )}
 
           {activeSection === 'overview' && (
             <section aria-labelledby="section-overview-title">
@@ -2602,6 +2472,56 @@ export function App() {
                       >
                         {headlineSentence}
                       </h2>
+
+                      {invoices.length === 0 && clients.length === 0 && (
+                        <div
+                          className="card"
+                          data-testid="overview-welcome-card"
+                          style={{
+                            padding: '1.25rem',
+                            marginBottom: '1.5rem',
+                            background: 'var(--sheet-2)',
+                            border: '1px solid var(--rule)',
+                            borderRadius: 'var(--radius-sm)'
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.35rem' }}>
+                            <span style={{ fontSize: '1.2rem' }}>✨</span>
+                            <h3 style={{ margin: 0, fontSize: '1.05rem', color: 'var(--ink)' }}>
+                              Welcome to your new workspace
+                            </h3>
+                          </div>
+                          <p style={{ fontSize: '0.875rem', color: 'var(--ink-muted)', margin: '0 0 1rem 0', lineHeight: 1.45 }}>
+                            Your workspace is fresh and ready. Add your first billing contact or draft an invoice to start tracking receivables.
+                          </p>
+                          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                            <button
+                              type="button"
+                              className="action-btn"
+                              data-testid="welcome-create-client-btn"
+                              style={{ padding: '0.45rem 0.85rem', fontSize: '0.82rem' }}
+                              onClick={() => {
+                                setActiveSection('clients');
+                                openCreateClientForm();
+                              }}
+                            >
+                              + Add first client
+                            </button>
+                            <button
+                              type="button"
+                              className="secondary-btn"
+                              data-testid="welcome-create-invoice-btn"
+                              style={{ padding: '0.45rem 0.85rem', fontSize: '0.82rem' }}
+                              onClick={() => {
+                                setActiveSection('invoices');
+                                openCreateInvoiceForm();
+                              }}
+                            >
+                              + Draft first invoice
+                            </button>
+                          </div>
+                        </div>
+                      )}
 
                       <h3 style={{ margin: '1rem 0 0.5rem 0', fontSize: '1.125rem' }}>Needs your attention</h3>
                       <div className="ledger-table-wrap" data-testid="home-needs-attention-table">
@@ -4765,23 +4685,6 @@ export function App() {
                     >
                       Export workspace JSON
                     </button>
-                    {currentUser?.isDemo && (
-                      <button
-                        type="button"
-                        className="secondary-btn"
-                        data-testid="settings-reset-demo-btn"
-                        onClick={async () => {
-                          await fetch('/api/demo/reset', { method: 'POST' });
-                          await loadClients();
-                          await loadInvoices();
-                          await loadActivities();
-                          await loadNotifications();
-                          setSettingsFeedback('Demo tenant data reset to clean seed state.');
-                        }}
-                      >
-                        Reset demo data
-                      </button>
-                    )}
                   </div>
 
                   <div style={{ marginTop: '2rem', paddingTop: '1.5rem', borderTop: '1px solid var(--rule)' }}>
@@ -4789,7 +4692,7 @@ export function App() {
                       Permanent Account Deletion
                     </h4>
                     <p style={{ fontSize: '0.875rem', color: 'var(--ink-muted)' }}>
-                      Permanently and irrevocably delete your account, clients, invoices, reminders, and activity history. For demo accounts, this safely resets the demo workspace to clean initial seed data.
+                      Permanently and irrevocably delete your account, clients, invoices, reminders, and activity history.
                     </p>
                     {deleteError && (
                       <div
@@ -5963,7 +5866,6 @@ export function App() {
         authLoading={authLoading}
         handleLogin={handleLogin}
         handleRegister={handleRegister}
-        handleDemoLogin={handleDemoLogin}
       />
     </div>
   );

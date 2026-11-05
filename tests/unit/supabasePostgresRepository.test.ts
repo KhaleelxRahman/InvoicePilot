@@ -245,7 +245,6 @@ describe('Supabase PostgreSQL Repository Engine & Integration', () => {
     expect(healthRes.status).toBe(200);
     expect(healthRes.body.status).toBe('ok');
     expect(healthRes.body.databaseEngine).toBe('postgresql-supabase');
-    expect(healthRes.body.demoTenantReady).toBe(true);
 
     // 2. Register user through the API into PostgreSQL
     const regRes = await request(app)

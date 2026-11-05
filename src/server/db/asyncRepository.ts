@@ -1954,29 +1954,42 @@ export class AsyncInvoicePilotRepository {
     invoices: InvoiceRecord[];
   }> {
     return await this.withTransaction(async () => {
-      await this.db.prepare('DELETE FROM sessions WHERE user_id = ?').run(DEMO_TENANT_USER_ID);
-      await this.db.prepare('DELETE FROM activity_log WHERE owner_user_id = ?').run(DEMO_TENANT_USER_ID);
-      await this.db.prepare('DELETE FROM notifications WHERE owner_user_id = ?').run(DEMO_TENANT_USER_ID);
-      await this.db.prepare('DELETE FROM reminders WHERE owner_user_id = ?').run(DEMO_TENANT_USER_ID);
-      await this.db.prepare('DELETE FROM pending_actions WHERE owner_user_id = ?').run(DEMO_TENANT_USER_ID);
-      await this.db.prepare('DELETE FROM invoice_items WHERE owner_user_id = ?').run(DEMO_TENANT_USER_ID);
-      await this.db.prepare('DELETE FROM invoices WHERE owner_user_id = ?').run(DEMO_TENANT_USER_ID);
-      await this.db.prepare('DELETE FROM invoice_templates WHERE owner_user_id = ?').run(DEMO_TENANT_USER_ID);
-      await this.db.prepare('DELETE FROM onboarding_progress WHERE user_id = ?').run(DEMO_TENANT_USER_ID);
-      await this.db.prepare('DELETE FROM chat_threads WHERE user_id = ?').run(DEMO_TENANT_USER_ID);
-      await this.db.prepare('DELETE FROM clients WHERE owner_user_id = ?').run(DEMO_TENANT_USER_ID);
-      await this.db.prepare('DELETE FROM settings WHERE user_id = ?').run(DEMO_TENANT_USER_ID);
-      await this.db.prepare('DELETE FROM paypal_connections WHERE user_id = ?').run(DEMO_TENANT_USER_ID);
-      await this.db.prepare('DELETE FROM users WHERE id = ?').run(DEMO_TENANT_USER_ID);
+      const demoUserRows = (await this.db
+        .prepare('SELECT id FROM users WHERE id = ? OR email = ? OR is_demo = 1')
+        .all(DEMO_TENANT_USER_ID, DEMO_TENANT_EMAIL)) as Array<{ id: string }>;
+      const demoUsers = demoUserRows.map((u) => u.id);
+
+      for (const uid of demoUsers) {
+        await this.db.prepare('DELETE FROM sessions WHERE user_id = ?').run(uid);
+        await this.db.prepare('DELETE FROM activity_log WHERE owner_user_id = ?').run(uid);
+        await this.db.prepare('DELETE FROM notifications WHERE owner_user_id = ?').run(uid);
+        await this.db.prepare('DELETE FROM reminders WHERE owner_user_id = ?').run(uid);
+        await this.db.prepare('DELETE FROM pending_actions WHERE owner_user_id = ?').run(uid);
+        await this.db.prepare('DELETE FROM invoice_items WHERE owner_user_id = ?').run(uid);
+        await this.db.prepare('DELETE FROM invoices WHERE owner_user_id = ?').run(uid);
+        try {
+          await this.db.prepare('DELETE FROM invoice_templates WHERE owner_user_id = ?').run(uid);
+        } catch {}
+        try {
+          await this.db.prepare('DELETE FROM onboarding_progress WHERE user_id = ?').run(uid);
+        } catch {}
+        try {
+          await this.db.prepare('DELETE FROM chat_threads WHERE user_id = ?').run(uid);
+        } catch {}
+        await this.db.prepare('DELETE FROM clients WHERE owner_user_id = ?').run(uid);
+        await this.db.prepare('DELETE FROM settings WHERE user_id = ?').run(uid);
+        await this.db.prepare('DELETE FROM paypal_connections WHERE user_id = ?').run(uid);
+        await this.db.prepare('DELETE FROM users WHERE id = ?').run(uid);
+      }
 
       const now = new Date().toISOString();
 
       await this.db
         .prepare(
           `INSERT INTO users (id, email, display_name, auth_provider, is_demo, created_at, updated_at)
-           VALUES (?, ?, ?, 'demo', 1, ?, ?)`
+           VALUES (?, ?, ?, 'session', 1, ?, ?)`
         )
-        .run(DEMO_TENANT_USER_ID, DEMO_TENANT_EMAIL, 'Aarav Mehta Studio (Demo Workspace)', now, now);
+        .run(DEMO_TENANT_USER_ID, DEMO_TENANT_EMAIL, 'Aarav Mehta Studio', now, now);
 
       await this.db
         .prepare(

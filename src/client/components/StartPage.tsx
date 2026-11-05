@@ -7,7 +7,6 @@ export interface StartPageProps {
   setThemePref: (theme: ThemePreference) => void;
   onLogin: (email: string, pass: string) => Promise<void>;
   onRegister: (email: string, pass: string, displayName: string) => Promise<void>;
-  onDemoLogin: () => Promise<void>;
   authLoading: boolean;
   authError: string | null;
   setAuthError: (err: string | null) => void;
@@ -23,7 +22,6 @@ export const StartPage: React.FC<StartPageProps> = ({
   setThemePref,
   onLogin,
   onRegister,
-  onDemoLogin,
   authLoading,
   authError,
   setAuthError,
@@ -44,6 +42,10 @@ export const StartPage: React.FC<StartPageProps> = ({
     if (tab === 'login') {
       await onLogin(email, password);
     } else {
+      if (password.length < 8) {
+        setAuthError('Password must be at least 8 characters long.');
+        return;
+      }
       await onRegister(email, password, displayName);
     }
   };
@@ -200,21 +202,18 @@ export const StartPage: React.FC<StartPageProps> = ({
               <div className="feature-mini-card">
                 <span className="feature-mini-icon" aria-hidden="true">
                   <svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M3 17h14" />
-                    <rect x="5" y="10" width="2.5" height="7" rx="0.5" />
-                    <rect x="9" y="6" width="2.5" height="11" rx="0.5" />
-                    <rect x="13" y="3" width="2.5" height="14" rx="0.5" />
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
                   </svg>
                 </span>
                 <div>
-                  <strong>Grounded Cash-Flow Insights</strong>
-                  <p>Receivables aging analysis and 30-day forecast estimates derived from verified records.</p>
+                  <strong>Verified Invoicing & Strict Owner Isolation</strong>
+                  <p>Deterministic minor-unit accounting, timing-safe scrypt sessions, and complete tenant data isolation.</p>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Authentication card */}
+          {/* Dedicated authentication card */}
           <div className="start-page-auth-container">
             <div className="card start-auth-card" data-testid="auth-card">
               <div className="start-auth-tabs" role="tablist" aria-label="Authentication mode">
@@ -271,6 +270,7 @@ export const StartPage: React.FC<StartPageProps> = ({
                 <div
                   className="alert-box alert-success"
                   role="status"
+                  data-testid="auth-feedback-alert"
                   style={{
                     padding: '0.65rem 0.85rem',
                     borderRadius: 'var(--radius-sm)',
@@ -285,7 +285,7 @@ export const StartPage: React.FC<StartPageProps> = ({
                 </div>
               )}
 
-              <form onSubmit={handleSubmit} data-testid="auth-form" style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+              <form onSubmit={handleSubmit} data-testid="auth-form" style={{ display: 'flex', flexDirection: 'column', gap: '0.95rem' }}>
                 <div>
                   <label htmlFor="auth-email-input" className="form-label" style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, marginBottom: '0.25rem' }}>
                     Email address
@@ -293,6 +293,7 @@ export const StartPage: React.FC<StartPageProps> = ({
                   <input
                     id="auth-email-input"
                     type="email"
+                    autoComplete="email"
                     className="form-input"
                     data-testid="auth-email-input"
                     placeholder="you@yourdomain.com"
@@ -311,6 +312,7 @@ export const StartPage: React.FC<StartPageProps> = ({
                     <input
                       id="auth-displayname-input"
                       type="text"
+                      autoComplete="organization"
                       className="form-input"
                       data-testid="auth-displayname-input"
                       placeholder="e.g. Vance UX & Systems"
@@ -329,6 +331,7 @@ export const StartPage: React.FC<StartPageProps> = ({
                   <input
                     id="auth-password-input"
                     type="password"
+                    autoComplete={tab === 'register' ? 'new-password' : 'current-password'}
                     className="form-input"
                     data-testid="auth-password-input"
                     placeholder={tab === 'register' ? 'At least 8 characters' : 'Enter password'}
@@ -339,8 +342,8 @@ export const StartPage: React.FC<StartPageProps> = ({
                     style={{ width: '100%', boxSizing: 'border-box' }}
                   />
                   {tab === 'register' && (
-                    <span style={{ fontSize: '0.72rem', color: 'var(--ink-muted)', marginTop: '0.2rem', display: 'block' }}>
-                      Hashed server-side using timing-safe scrypt.
+                    <span style={{ fontSize: '0.72rem', color: 'var(--ink-muted)', marginTop: '0.25rem', display: 'block' }}>
+                      Minimum 8 characters. Hashed server-side using timing-safe scrypt.
                     </span>
                   )}
                 </div>
@@ -350,61 +353,56 @@ export const StartPage: React.FC<StartPageProps> = ({
                   className="action-btn"
                   data-testid="auth-submit-btn"
                   disabled={authLoading}
-                  style={{ width: '100%', marginTop: '0.5rem', padding: '0.65rem' }}
+                  style={{ width: '100%', marginTop: '0.4rem', padding: '0.7rem' }}
                 >
                   {authLoading
-                    ? 'Processing...'
-                    : tab === 'login'
-                    ? 'Sign in to Workspace'
-                    : 'Create Free Account'}
+                    ? (tab === 'login' ? 'Signing in...' : 'Creating workspace...')
+                    : (tab === 'login' ? 'Sign in to Workspace' : 'Create Free Account')}
                 </button>
-              </form>
 
-              {/* Demo workspace divider */}
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  margin: '1.5rem 0',
-                  color: 'var(--ink-muted)',
-                  fontSize: '0.78rem'
-                }}
-              >
-                <div style={{ flex: 1, height: '1px', background: 'var(--rule)' }}></div>
-                <span style={{ padding: '0 0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  or explore safely
-                </span>
-                <div style={{ flex: 1, height: '1px', background: 'var(--rule)' }}></div>
-              </div>
-
-              {/* Demo Workspace Exploration Box */}
-              <div
-                className="demo-exploration-box"
-                style={{
-                  background: 'var(--sheet-2)',
-                  border: '1px solid var(--rule)',
-                  borderRadius: 'var(--radius-sm)',
-                  padding: '1rem',
-                  textAlign: 'center'
-                }}
-              >
-                <div style={{ fontWeight: 600, fontSize: '0.88rem', color: 'var(--ink)', marginBottom: '0.25rem' }}>
-                  Explore Demo Workspace
+                <div style={{ textAlign: 'center', marginTop: '0.35rem' }}>
+                  {tab === 'login' ? (
+                    <button
+                      type="button"
+                      className="link-btn"
+                      onClick={() => {
+                        setTab('register');
+                        setAuthError(null);
+                        setAuthFeedback(null);
+                      }}
+                      style={{ fontSize: '0.8rem', color: 'var(--ink-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: '0.2rem' }}
+                    >
+                      Don&apos;t have an account yet? <span style={{ color: 'var(--primary)', fontWeight: 600 }}>Create account</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="link-btn"
+                      onClick={() => {
+                        setTab('login');
+                        setAuthError(null);
+                        setAuthFeedback(null);
+                      }}
+                      style={{ fontSize: '0.8rem', color: 'var(--ink-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: '0.2rem' }}
+                    >
+                      Already have an account? <span style={{ color: 'var(--primary)', fontWeight: 600 }}>Sign in</span>
+                    </button>
+                  )}
                 </div>
-                <p style={{ fontSize: '0.78rem', color: 'var(--ink-muted)', margin: '0 0 0.85rem 0', lineHeight: 1.4 }}>
-                  Test-drive InvoicePilot instantly with realistic sample clients, invoices, and cash-flow insights. Safe 1-click test drive with zero setup.
-                </p>
-                <button
-                  type="button"
-                  className="secondary-btn"
-                  data-testid="enter-demo-btn"
-                  disabled={authLoading}
-                  onClick={onDemoLogin}
-                  style={{ width: '100%', padding: '0.55rem' }}
+
+                <div
+                  style={{
+                    borderTop: '1px solid var(--rule)',
+                    paddingTop: '0.85rem',
+                    marginTop: '0.5rem',
+                    textAlign: 'center',
+                    fontSize: '0.72rem',
+                    color: 'var(--ink-muted)'
+                  }}
                 >
-                  Launch Demo Workspace →
-                </button>
-              </div>
+                  🔒 Encrypted timing-safe sessions • Complete owner isolation
+                </div>
+              </form>
             </div>
           </div>
         </div>

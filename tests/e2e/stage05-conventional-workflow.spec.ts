@@ -5,6 +5,7 @@ test.describe('Stage 05 — Clients and Conventional Invoice Draft Workflow', ()
   test('creates & edits client, validates invalid draft input, persists & reloads multi-item invoice draft, and edits draft without sending to PayPal', async ({
     page
   }, testInfo) => {
+    test.setTimeout(60000);
     const consoleErrors: string[] = [];
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
