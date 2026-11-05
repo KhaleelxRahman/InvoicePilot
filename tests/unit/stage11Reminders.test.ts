@@ -391,8 +391,9 @@ describe('Stage 11 — Reminder Drafts, Client Tone & Observable Scheduling', ()
       items: [{ description: 'Tech Advisory', quantity: 1, unitAmountMinor: 400000 }]
     });
 
-    // 1. Create reminder scheduled for a specific date/time
-    const scheduledTarget = '2026-11-05T09:00:00.000Z';
+    // 1. Create reminder scheduled for a specific date/time (tomorrow)
+    const futureMs = Date.now() + 86400000;
+    const scheduledTarget = new Date(futureMs).toISOString();
     const draftRes = await request(app)
       .post(`/api/invoices/${invoice.id}/reminders/draft`)
       .set('Authorization', `Bearer ${token}`)
@@ -416,7 +417,7 @@ describe('Stage 11 — Reminder Drafts, Client Tone & Observable Scheduling', ()
     const beforeRes = await request(app)
       .post('/api/reminders/process-scheduled')
       .set('Authorization', `Bearer ${token}`)
-      .send({ currentTimeIso: '2026-11-04T12:00:00.000Z' });
+      .send({ currentTimeIso: new Date(Date.now() - 3600000).toISOString() });
     expect(beforeRes.status).toBe(200);
     expect(beforeRes.body.results.length).toBe(0);
 
@@ -430,7 +431,7 @@ describe('Stage 11 — Reminder Drafts, Client Tone & Observable Scheduling', ()
     const dueRes = await request(app)
       .post('/api/reminders/process-scheduled')
       .set('Authorization', `Bearer ${token}`)
-      .send({ currentTimeIso: '2026-11-05T09:00:01.000Z' });
+      .send({ currentTimeIso: new Date(futureMs + 1000).toISOString() });
     expect(dueRes.status).toBe(200);
     expect(dueRes.body.results.length).toBe(1);
     expect(dueRes.body.results[0].id).toBe(reminderId);

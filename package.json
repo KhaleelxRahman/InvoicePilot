@@ -3,6 +3,20 @@
   "version": "0.1.0",
   "license": "MIT",
   "description": "AI-assisted invoicing and payment management workspace (PayPal AI Hackathon)",
+  "homepage": "https://inquisitive-biscochitos-83e042.netlify.app/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/KhaleelxRahman/InvoicePilot.git"
+  },
+  "keywords": [
+    "paypal",
+    "paypal-ai-hackathon",
+    "invoicing",
+    "gemini-ai",
+    "human-in-the-loop",
+    "approval-gate",
+    "freelance-management"
+  ],
   "type": "module",
   "scripts": {
     "dev": "tsx src/server/dev.ts",

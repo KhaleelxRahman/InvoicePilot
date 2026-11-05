@@ -35,4 +35,7 @@ Thumbs.db
 # Local Netlify folder
 .netlify
 
+# Editor directories
+.vscode/
+
 /InvoicePilot/

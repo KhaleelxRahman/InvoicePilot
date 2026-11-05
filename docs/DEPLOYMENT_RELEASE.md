@@ -91,31 +91,25 @@ Configure the PayPal Sandbox Webhook in the PayPal Developer Dashboard:
 
 ## Release Record & Final Verification Audit
 
-- **Release Date**: 2026-11-02
+- **Release Date**: 2026-11-05
 - **Target Git Branch**: `main`
-- **Target Architecture**: Netlify (Frontend Static SPA + Netlify Functions Serverless Express API) + Supabase Free PostgreSQL
-- **Local Production Build Verification**: `dist/client` + `dist/server` built and verified (`npm run build`, `npm run typecheck` passed with 0 errors)
-- **Deployment Status**: `PREPARED & VERIFIED LOCALLY` (Netlify configuration `netlify.toml` and serverless adapter `netlify/functions/api.ts` prepared; Supabase PostgreSQL migration script `migrations/001_initial_supabase_schema.sql` and CLI `db:migrate:supabase` prepared)
-- **Database Engine**: Supabase Free PostgreSQL (with local SQLite retained for offline development and local test suite)
-- **Supabase Free Limits & Constraints**:
-  - Storage: 500 MB database quota
-  - Inactivity Pauses: Free tier projects automatically pause after 7 consecutive days of inactivity; can be unpaused from the Supabase Project Dashboard
-  - Connection Pooling: Use Supabase Transaction Pooler (`port 6543`) with `?sslmode=require` for serverless Netlify Functions to prevent database connection exhaustion
-- **Netlify Deployment Configuration**:
-  - Build command: `npm run build`
-  - Publish directory: `dist/client`
-  - Functions directory: `netlify/functions`
-  - Same-origin routing: `[[redirects]] from = "/api/*" to = "/.netlify/functions/api/:splat" status = 200`
-- **Demo Video**: `NOT RECORDED` (170-second rehearsal script prepared in `docs/HACKATHON_SUBMISSION.md`; awaiting video recording)
-- **Test Suite Results**:
-  - Unit/Contract Tests: 91/91 passed (100% pass across 14 test suites)
-  - Playwright E2E Tests: 24/24 passed across `desktop-chromium` (1280x800) and `mobile-360` (360x780)
-- **Clean Setup Check**: Fresh database migration (`v1`) and demo seeding (`usr_demo_tenant_01`, 2 clients, 1 invoice) passed cleanly on test database without exposing `.env` or overwriting existing user data.
-- **Security Audit Re-Check Findings**:
-  1. **Dependencies (`npm audit`)**: Production dependencies (`npm audit --omit=dev`) pass with **0 vulnerabilities** after updating `zod` to `^4.6.7` (resolving GHSA-mrhx-c7xc-m3w5). Dev-only test runner dependencies (`vitest`/`tinypool`) are excluded from production deployments.
-  2. **Session Cookies & CSRF**: Session cookie `invoicepilot_session` enforces `HttpOnly; SameSite=Lax; Max-Age=604800` and dynamically includes `; Secure` when `NODE_ENV=production`. API endpoints also accept explicit `x-session-token` / Bearer headers, providing defense-in-depth against CSRF.
-  3. **Manual Payments vs. PayPal Status**: `recordPartialPayment` marks `paid_amount_minor` and, upon full settlement, sets `provider_status = 'PAID'`. For invoices already dispatched to PayPal Sandbox (`providerInvoiceId` present), local offline payments mark the local ledger paid without invoking PayPal's `/v2/invoicing/invoices/{id}/record-payment` REST endpoint, creating a divergence until refreshed or reconciled via webhooks.
-  4. **Webhook Event Viewer**: `/api/webhooks/paypal/events` requires an authenticated owner session (`requireOwner`) and stores/returns `payload_hash` rather than exposing raw JSON bodies or customer PII. However, webhook records are stored globally for the application webhook endpoint rather than isolated per user account.
-- **Known Limitations**:
-  - Supabase Free tier pauses after 7 days of inactivity.
-  - Public Client Pay page deferred (relies securely on PayPal Sandbox hosted `providerRecipientViewUrl`).
+- **Verified Production URL**: [https://inquisitive-biscochitos-83e042.netlify.app/](https://inquisitive-biscochitos-83e042.netlify.app/)
+- **Live Health Endpoint**: [https://inquisitive-biscochitos-83e042.netlify.app/api/health](https://inquisitive-biscochitos-83e042.netlify.app/api/health)
+- **Deployment Platform**: Netlify (Vite Static SPA + Netlify Serverless Functions via `serverless-http`)
+- **Cloud Database Engine**: Supabase Managed PostgreSQL (`postgresql-supabase`, transaction pooler port 6543, SSL required)
+- **Local Fallback Database Engine**: Node.js built-in `node:sqlite` (`DatabaseSync`) for offline tests and development
+- **Production Build Status**: Verified (`vite build && tsc -p tsconfig.server.json` passing with 0 errors)
+- **Automated Test Evidence**:
+  - Unit & Integration: **128 / 128 Passed** across 19 suites (Vitest 3)
+  - Playwright E2E: **36 / 36 Passed** across `desktop-chromium` (1280x800) and `mobile-360` (360x780)
+  - Responsive Viewport Audits: **1440x900** and **390x844** verified with **0 horizontal overflow**
+- **Security & Authentication Verification**:
+  - Timing-safe `scrypt` password hashing and session tokens
+  - Protected API routes enforcing `401 UNAUTHORIZED` on missing auth
+  - Strict tenant isolation rejecting cross-user access with `403 FORBIDDEN_OWNER_MISMATCH`
+  - Demo authentication backdoor endpoints (`POST /api/auth/demo` and `POST /api/demo/reset`) permanently removed (returning `404 ROUTE_NOT_FOUND`)
+  - Server-enforced Human Approval Gate (`DRAFTED -> PENDING_APPROVAL -> APPROVED -> EXECUTED`)
+  - Offline invoice PDF download via authenticated endpoint (`GET /api/invoices/:id/pdf`)
+- **Known Limitations & Considerations**:
+  - Supabase Free tier automatically pauses after 7 days of inactivity; can be unpaused from the Supabase dashboard.
+  - Users must provide their own PayPal Sandbox App Client ID and Secret in Settings (or environment variables) to transmit live sandbox invoices to external PayPal sandbox accounts.

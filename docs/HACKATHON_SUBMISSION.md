@@ -6,8 +6,9 @@
 - **Hackathon Track**: PayPal AI Hackathon
 - **Official Deadline**: November 13, 2026, 1:30 AM IST (Internal target: November 12, 2026)
 - **Repository**: [https://github.com/KhaleelxRahman/InvoicePilot](https://github.com/KhaleelxRahman/InvoicePilot)
+- **Live Deployed App**: [https://inquisitive-biscochitos-83e042.netlify.app/](https://inquisitive-biscochitos-83e042.netlify.app/)
 - **License**: MIT License ([LICENSE](LICENSE))
-- **Release Verification Date**: 2026-11-01
+- **Release Verification Date**: 2026-11-05
 
 ---
 
@@ -20,12 +21,12 @@
 | **3. AI model meaningfully integrated** | VERIFIED | Gemini API integrated with strict Zod structured outputs schema, stored client resolution, validation explanations, prompt-injection sanitization, and conventional form fallback (`tests/unit/stage07GeminiAgent.test.ts` 6/6 & `tests/e2e/stage07-gemini-agent.spec.ts` 2/2). |
 | **4. Human approval gate demonstrated** | VERIFIED | Server-enforced state machine (`DRAFTED -> PENDING_APPROVAL -> APPROVED -> EXECUTING -> EXECUTED`); paper approval slip UI; discard/rejection safety; revalidation immediately before execution (`tests/unit/stage06Approval.test.ts` 6/6 & `tests/e2e/stage06-approval-slip.spec.ts` 2/2). |
 | **5. Feature description accurately reflects implementation** | VERIFIED | `README.md`, `docs/PRD.md`, and `docs/FEATURE_STATUS.md` reflect verified features; no live payment claims; mock vs. sandbox explicitly distinguished. |
-| **6. Functional demo or clean setup instructions** | VERIFIED | Fresh setup verified from README (`npm install`, `npm run db:migrate`, `npm run db:seed:demo`, `npm run dev`, `npm run build`, `npm start`); pre-seeded demo user (`demo.freelancer@invoicepilot.local`) with 1-click safe reset. |
+| **6. Functional demo & production deployment** | VERIFIED | Live on Netlify at `https://inquisitive-biscochitos-83e042.netlify.app/` backed by Supabase PostgreSQL; dedicated account registration/login; local setup instructions verified (`npm install`, `npm run db:migrate`, `npm run dev`, `npm run build`, `npm start`). |
 | **7. Public source repository & open-source license** | VERIFIED | Public repository configured; standard MIT License added to root [LICENSE](LICENSE) and `package.json` (`"license": "MIT"`). |
 | **8. Secret scan and Git history review** | VERIFIED | `.gitignore` excludes `.env`, `*.sqlite`, `.reticle/`, `data/`; secret scan verified zero hardcoded API keys or client secrets in tracked files or Git history. |
 | **9. Tools and usage disclosure** | VERIFIED | Disclosed in `README.md`, `docs/ARCHITECTURE.md`, `docs/MCP_INTEGRATION.md`, and `docs/DECISIONS_LOG.md`. |
 | **10. Public YouTube video under 3 minutes** | SCRIPT PREPARED | Detailed 170-second rehearsal script prepared below; video recording ready against running application. |
-| **11. Running product on target device viewports** | VERIFIED | Verified across desktop (1280x800) and mobile (360x780) viewports via Playwright with 0 console errors. |
+| **11. Running product on target device viewports** | VERIFIED | Verified across desktop (1280x800 & 1440x900) and mobile (360x780 & 390x844) viewports via Playwright with 0 console errors and 0 horizontal overflow. |
 | **12. No unauthorized trademarks or music** | VERIFIED | Uses system and open-source Google fonts (Newsreader, Hanken Grotesk); original CSS design tokens; royalty-free UI presentation. |
 | **13. Known limitations documented honestly** | VERIFIED | Documented in `docs/FEATURE_STATUS.md` and `docs/DEPLOYMENT_RELEASE.md` (Node 22 runtime requirement; public client pay page deferred to official PayPal Sandbox hosted URL). |
 | **14. Demo rehearsed & failure fallback prepared** | VERIFIED | Step-by-step 3-minute demo rehearsal script tested and verified. |
