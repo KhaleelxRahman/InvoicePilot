@@ -101,20 +101,20 @@ flowchart TD
         PayPalSandbox["PayPal Invoicing v2 Sandbox REST API"]
     end
 
-    UI -->|HTTP / JSON + Bearer Token| Router
+    UI -->|"HTTP / JSON + Bearer Token"| Router
     Router --> AuthMiddleware
     AuthMiddleware --> StateMachine
     StateMachine --> CalcEngine
 
-    CalcEngine -->|Query / Mutation| PostgresPool
+    CalcEngine -->|"Query / Mutation"| PostgresPool
     PostgresPool --> Tables
 
-    StateMachine -.->|Draft Structured Invoice| GeminiAdapter
-    GeminiAdapter -->|JSON Schema Prompt| GeminiAPI
+    StateMachine -.->|"Draft Structured Invoice"| GeminiAdapter
+    GeminiAdapter -->|"JSON Schema Prompt"| GeminiAPI
 
-    StateMachine ==>|Execute Approved Slip Only| PayPalAdapter
-    PayPalAdapter -->|OAuth 2.0 Token + Invoicing v2| PayPalSandbox
-    PayPalSandbox -.->|Webhooks (SHA256withRSA)| Router
+    StateMachine ==>|"Execute Approved Slip Only"| PayPalAdapter
+    PayPalAdapter -->|"OAuth 2.0 Token + Invoicing v2"| PayPalSandbox
+    PayPalSandbox -.->|"Webhooks with SHA256 Signature"| Router
 ```
 
 ---
