@@ -210,7 +210,7 @@ export const Header: React.FC<HeaderProps> = ({
                       Notifications ({notifications.filter((n) => !n.isRead).length} unread)
                     </span>
                     <div style={{ fontSize: '0.72rem', color: 'var(--ink-muted)', marginTop: '0.1rem' }}>
-                      In-app operational alerts (internal workspace alerts)
+                      Workspace alerts and updates
                     </div>
                   </div>
                   <button
@@ -371,4 +371,3 @@ export const Header: React.FC<HeaderProps> = ({
     </header>
   );
 };
-

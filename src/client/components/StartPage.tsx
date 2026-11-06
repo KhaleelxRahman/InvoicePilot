@@ -167,12 +167,11 @@ export const StartPage: React.FC<StartPageProps> = ({
               PayPal AI Hackathon 2026
             </span>
             <h2 className="start-page-headline">
-              AI-assisted invoicing with an authoritative Human Approval Gate.
+              Prepare invoices with AI. Send only after your approval.
             </h2>
             <p className="start-page-lead">
-              Built for solo consultants, freelancers, and small service studios. Prepare structured
-              invoices with Google Gemini, review on a formal Paper Approval Slip, and dispatch via
-              PayPal Sandbox Invoicing v2.
+              Built for freelancers and small service teams. Draft invoices with Gemini, review every
+              detail, and send through PayPal Sandbox.
             </p>
 
             <div className="start-page-features-grid">
