@@ -28,7 +28,7 @@ npm run build
 
 ### Required Production Environment Variables in Vercel (`khaleelxrahmans-projects/invoicepilot`)
 Ensure the following variables are present in the `Production` scope (see [docs/ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md)):
-- `DATABASE_URL` (`Secret`) — Supabase PostgreSQL connection string (migrated through Migration `003`)
+- `DATABASE_URL` (`Secret`) — Supabase PostgreSQL connection string (migrated through Migration `004`)
 - `APP_ENV` (`production`)
 - `APP_BASE_URL` (`https://invoicepilot-beryl.vercel.app`)
 - `PAYPAL_MODE` (`sandbox`)
@@ -41,7 +41,7 @@ Ensure the following variables are present in the `Production` scope (see [docs/
 
 ## 3. Database Migration Before First Deployment
 
-If deploying against a fresh Supabase PostgreSQL instance, apply the idempotent schema migrations (`001`, `002`, `003`) before traffic hits the deployment:
+If deploying against a fresh Supabase PostgreSQL instance, apply the idempotent schema migrations (`001`, `002`, `003`, `004`) before traffic hits the deployment:
 
 ```powershell
 npm run db:migrate:supabase
@@ -110,4 +110,3 @@ Confirm the endpoint returns HTTP `400` (`WEBHOOK_SIGNATURE_INVALID`) and never 
 
 ### 4. PayPal Sandbox OAuth Check
 Authenticate in the live UI (or via session token) and trigger `POST /api/paypal/verify-oauth` from **Settings → PayPal Sandbox** to confirm live OAuth 2.0 token acquisition against `https://api-m.sandbox.paypal.com`.
-

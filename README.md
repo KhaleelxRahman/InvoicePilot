@@ -233,7 +233,7 @@ All scripts defined in [package.json](package.json):
 | `npm run test:e2e` | Runs the Playwright end-to-end browser test suite (`playwright test`) |
 | `npm run db:migrate` | Runs local SQLite schema migrations (`tsx src/server/db/migrateAndSeedCli.ts migrate`) |
 | `npm run db:seed:demo` | Resets and seeds the isolated local synthetic demo tenant (`usr_demo_tenant_01`) |
-| `npm run db:migrate:supabase` | Applies idempotent PostgreSQL migrations (`001`–`003`) to `DATABASE_URL` |
+| `npm run db:migrate:supabase` | Applies idempotent PostgreSQL migrations (`001`–`004`) to `DATABASE_URL` using verified TLS |
 | `npm run paypal:adapter:verify` | Verifies Mock and Sandbox PayPal adapter invariants via CLI |
 | `npm run paypal:sandbox:verify` | Verifies live PayPal Sandbox OAuth and draft invoice creation via CLI |
 
