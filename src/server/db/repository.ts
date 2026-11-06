@@ -3458,7 +3458,8 @@ export class InvoicePilotRepository {
           // ignore
         }
         try {
-          this.db.prepare('DELETE FROM chat_threads WHERE user_id = ?').run(uid);
+          this.db.prepare('DELETE FROM chat_messages WHERE owner_user_id = ?').run(uid);
+          this.db.prepare('DELETE FROM chat_threads WHERE owner_user_id = ?').run(uid);
         } catch {
           // ignore
         }
@@ -3614,7 +3615,8 @@ export class InvoicePilotRepository {
         // ignore
       }
       try {
-        this.db.prepare('DELETE FROM chat_threads WHERE user_id = ?').run(userId);
+        this.db.prepare('DELETE FROM chat_messages WHERE owner_user_id = ?').run(userId);
+        this.db.prepare('DELETE FROM chat_threads WHERE owner_user_id = ?').run(userId);
       } catch {
         // ignore
       }

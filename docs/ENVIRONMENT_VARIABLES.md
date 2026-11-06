@@ -19,7 +19,7 @@ This document lists every environment variable read by InvoicePilot in [`src/ser
 | `PAYPAL_CLIENT_SECRET` | **Yes (Sandbox)** | **Yes** | `""` | `src/server/config.ts#L90` | PayPal Sandbox REST API App Client Secret. |
 | `PAYPAL_WEBHOOK_ID` | **Yes (Webhooks)** | **Yes** | `""` | `src/server/config.ts#L91` | PayPal Sandbox Webhook ID for `/v1/notifications/verify-webhook-signature`. |
 | `GEMINI_API_KEY` | Optional | **Yes** | `""` | `src/server/config.ts#L86` | Google Gemini API key. Falls back to deterministic parser and manual form when unset. |
-| `GEMINI_MODEL` | Optional | No | `gemini-2.5-flash` | `src/server/config.ts#L87` | Gemini model identifier. |
+| `GEMINI_MODEL` | Optional | No | `gemini-3.8-flash` | `src/server/config.ts#L108` | Gemini model identifier (automatically normalizes legacy `gemini-2.5-flash` / `gemini-1.5-flash` to `gemini-3.8-flash`). |
 | `GEMINI_TIMEOUT_MS` | Optional | No | `15000` | `src/server/config.ts#L56` | Timeout in milliseconds for Gemini API calls. |
 | `PAYPAL_TIMEOUT_MS` | Optional | No | `15000` | `src/server/config.ts#L53` | Timeout in milliseconds for PayPal Sandbox HTTP calls. |
 | `PAYPAL_SANDBOX_INVOICER_EMAIL` | Optional | No | `undefined` | `src/server/config.ts#L92` | Optional PayPal Sandbox merchant email override. |

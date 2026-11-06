@@ -14,7 +14,7 @@ import {
   type PendingActionRecord,
   type ReminderTone
 } from '../db/repository.js';
-import type { PayPalMode } from '../config.js';
+import { normalizeGeminiModelId, type PayPalMode } from '../config.js';
 import type { AsyncInvoicePilotRepository } from '../db/asyncRepository.js';
 import {
   addCalendarDays,
@@ -351,7 +351,7 @@ export class GeminiInvoiceAgent {
     config: GeminiAgentConfig
   ) {
     this.apiKey = (config.apiKey ?? '').trim();
-    this.model = (config.model ?? 'gemini-2.5-flash').trim() || 'gemini-2.5-flash';
+    this.model = normalizeGeminiModelId(config.model);
     this.timeoutMs = config.timeoutMs ?? 15000;
     this.baseUrl = (config.baseUrl ?? 'https://generativelanguage.googleapis.com').replace(
       /\/+$/,
@@ -517,7 +517,6 @@ export class GeminiInvoiceAgent {
             }
           ],
           generationConfig: {
-            temperature: 0.1,
             responseMimeType: 'application/json',
             responseSchema: GEMINI_RESPONSE_SCHEMA
           }
@@ -528,6 +527,13 @@ export class GeminiInvoiceAgent {
       if (!response.ok) {
         const errBody = await response.text().catch(() => '');
         const safeErr = redactSecretsInText(errBody, [this.apiKey]).slice(0, 240);
+        if (response.status === 404) {
+          throw new Error(
+            `GEMINI_MODEL_NOT_FOUND: Gemini API model "${this.model}" was not found or is unavailable (HTTP 404)${
+              safeErr ? ` (${safeErr})` : ''
+            }`
+          );
+        }
         if (response.status === 429) {
           throw new Error(
             `GEMINI_RATE_LIMITED: Gemini API rate limit or quota exceeded (HTTP 429)${
@@ -804,9 +810,11 @@ export class GeminiInvoiceAgent {
         ? 'Gemini structured agent is not configured on the server (GEMINI_API_KEY is missing). Your conventional invoice form remains ready so you can create or edit drafts without interruption.'
         : safeMessage.startsWith('GEMINI_RATE_LIMITED:')
           ? 'Gemini API rate limit or quota was exceeded (HTTP 429). Please wait a moment and retry, or use the conventional invoice form.'
-          : safeMessage.startsWith('GEMINI_TIMEOUT:')
-            ? 'Gemini structured agent timed out before completing the request. Please retry or use the conventional invoice form.'
-            : 'Gemini structured agent is currently unavailable or returned an invalid response. Your conventional invoice form remains ready so you can create or edit drafts without interruption.';
+          : safeMessage.startsWith('GEMINI_MODEL_NOT_FOUND:')
+            ? 'The configured Gemini model was not found or is unavailable for this API key (HTTP 404). Your conventional invoice form remains ready so you can create or edit drafts without interruption.'
+            : safeMessage.startsWith('GEMINI_TIMEOUT:')
+              ? 'Gemini structured agent timed out before completing the request. Please retry or use the conventional invoice form.'
+              : 'Gemini structured agent is currently unavailable or returned an invalid response. Your conventional invoice form remains ready so you can create or edit drafts without interruption.';
 
       return {
         ok: false,
@@ -1537,7 +1545,6 @@ Rules:
             }
           ],
           generationConfig: {
-            temperature: 0.2,
             responseMimeType: 'application/json',
             responseSchema: {
               type: 'OBJECT',

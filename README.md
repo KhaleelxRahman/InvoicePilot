@@ -7,7 +7,7 @@
 [![GitHub Repository](https://img.shields.io/badge/GitHub-KhaleelxRahman%2FInvoicePilot-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/KhaleelxRahman/InvoicePilot)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
 [![Playwright E2E](https://img.shields.io/badge/Playwright-36%2F36%20Passed-brightgreen.svg?style=for-the-badge&logo=playwright&logoColor=white)](tests/e2e)
-[![Vitest Suite](https://img.shields.io/badge/Vitest-139%2F139%20Passed-brightgreen.svg?style=for-the-badge&logo=vitest&logoColor=white)](tests/unit)
+[![Vitest Suite](https://img.shields.io/badge/Vitest-141%2F141%20Passed-brightgreen.svg?style=for-the-badge&logo=vitest&logoColor=white)](tests/unit)
 [![TypeScript 5.7](https://img.shields.io/badge/TypeScript-5.7-3178C6.svg?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Database: Supabase](https://img.shields.io/badge/Database-Supabase%20PostgreSQL-3ECF8E.svg?style=for-the-badge&logo=supabase&logoColor=white)](https://supabase.com/)
 
@@ -53,7 +53,7 @@ Independent freelancers, consultants, and small service businesses lose hours ea
 - **Cloud Database**: Supabase PostgreSQL (`pg.Pool` via transaction pooler)
 - **Local Development Database**: Built-in Node.js SQLite (`node:sqlite` / `DatabaseSync`)
 - **Payment Provider**: PayPal Invoicing v2 REST API (Sandbox Mode & Isolated Mock Mode)
-- **AI Assistant**: Google Gemini (`gemini-2.5-flash`) with deterministic parser and conventional form fallbacks
+- **AI Assistant**: Google Gemini (`gemini-3.8-flash`) with deterministic parser and conventional form fallbacks
 
 ---
 
@@ -84,8 +84,8 @@ Independent freelancers, consultants, and small service businesses lose hours ea
 | **Production Database** | Supabase PostgreSQL (`pg` 8.23) | Cloud relational persistence with `AsyncLocalStorage` transactions |
 | **Local Database** | `node:sqlite` (`DatabaseSync`) | Zero-configuration local development and unit/E2E testing |
 | **Payments** | PayPal Invoicing v2 REST API (Sandbox) | Draft creation, invoice dispatch, status sync, webhook verification |
-| **AI Engine** | Google Gemini REST API (`gemini-2.5-flash`) | Structured invoice & reminder drafting with deterministic fallback |
-| **Testing** | Vitest 4.1, Supertest 7, Playwright 1.50 | 135 unit/integration tests + 36 browser E2E tests |
+| **AI Engine** | Google Gemini REST API (`gemini-3.8-flash`) | Structured invoice & reminder drafting with deterministic fallback |
+| **Testing** | Vitest 4.1, Supertest 7, Playwright 1.50 | 141 unit/integration tests + 36 browser E2E tests |
 
 ---
 
@@ -169,7 +169,7 @@ InvoicePilot/
 │       └── index.ts              # Standalone production Node server entry point
 ├── tests/
 │   ├── e2e/                      # 13 Playwright E2E spec files (Desktop & Mobile)
-│   └── unit/                     # 20 Vitest unit & integration test suites (135 tests)
+│   └── unit/                     # 20 Vitest unit & integration test suites (141 tests)
 ├── .env.example                  # Safe environment variable template (no secrets)
 ├── package.json                  # Scripts and dependencies
 ├── playwright.config.ts          # Playwright E2E configuration
@@ -253,7 +253,7 @@ The server loads configuration exclusively through [`loadAppConfig()`](src/serve
 | `PAYPAL_CLIENT_SECRET` | For Sandbox | **Yes** | `""` | PayPal Sandbox REST API Client Secret. |
 | `PAYPAL_WEBHOOK_ID` | For Webhooks | **Yes** | `""` | PayPal Sandbox Webhook ID for `/api/webhooks/paypal` signature verification. |
 | `GEMINI_API_KEY` | Optional | **Yes** | `""` | Google Gemini API key. Uses deterministic fallback when empty. |
-| `GEMINI_MODEL` | Optional | No | `gemini-2.5-flash` | Gemini model name. |
+| `GEMINI_MODEL` | Optional | No | `gemini-3.8-flash` | Gemini model name (automatically normalizes legacy `gemini-2.5-flash` / `gemini-1.5-flash` to `gemini-3.8-flash`). |
 | `GEMINI_TIMEOUT_MS` | Optional | No | `15000` | Timeout in ms for Gemini requests (`>= 100`). |
 | `PAYPAL_TIMEOUT_MS` | Optional | No | `15000` | Timeout in ms for PayPal Sandbox HTTP requests (`>= 100`). |
 | `PAYPAL_SANDBOX_INVOICER_EMAIL` | Optional | No | `undefined` | Optional Sandbox merchant invoicer email override. |
@@ -334,7 +334,7 @@ npm run db:migrate:supabase
 
 ## 15. Gemini AI Configuration & Fallback
 
-- **Configured Mode**: When `GEMINI_API_KEY` is provided, [`GeminiInvoiceAgent`](src/server/agent/geminiAgent.ts) calls `gemini-2.5-flash` (`GEMINI_MODEL`) with a 15-second timeout (`GEMINI_TIMEOUT_MS`), validates structured outputs with Zod, resolves client names against the authenticated owner's stored clients, and neutralizes prompt-injection patterns in notes.
+- **Configured Mode**: When `GEMINI_API_KEY` is provided, [`GeminiInvoiceAgent`](src/server/agent/geminiAgent.ts) calls `gemini-3.8-flash` (`GEMINI_MODEL`) with a 15-second timeout (`GEMINI_TIMEOUT_MS`), validates structured outputs with Zod, resolves client names against the authenticated owner's stored clients, and neutralizes prompt-injection patterns in notes.
 - **Unconfigured / Offline Fallback**: `GEMINI_API_KEY` is optional. When omitted or when the API times out or returns a `429`/`5xx` error, InvoicePilot automatically falls back to its built-in deterministic natural-language parser and preserves full conventional invoice and reminder forms.
 - Verify Gemini and fallback behavior locally:
   ```powershell
@@ -351,7 +351,7 @@ Run the full quality gate locally in PowerShell:
 # 1. TypeScript static typecheck
 npm run typecheck
 
-# 2. Unit & integration test suite (20 test files, 139 tests)
+# 2. Unit & integration test suite (20 test files, 141 tests)
 npm test
 
 # 3. Production client + server build
@@ -414,7 +414,7 @@ Expected healthy production response:
   "sandboxCredentialsConfigured": true,
   "webhookConfigured": true,
   "geminiConfigured": false,
-  "geminiModel": "gemini-2.5-flash",
+  "geminiModel": "gemini-3.8-flash",
   "databaseEngine": "postgresql-supabase",
   "databaseConfigured": true,
   "schemaVersion": 6,

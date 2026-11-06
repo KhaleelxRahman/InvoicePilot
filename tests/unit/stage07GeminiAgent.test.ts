@@ -6,7 +6,11 @@ import request from 'supertest';
 import { newDb, DataType } from 'pg-mem';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createApiApp } from '../../src/server/app.js';
-import { loadAppConfig } from '../../src/server/config.js';
+import {
+  DEFAULT_GEMINI_MODEL,
+  loadAppConfig,
+  normalizeGeminiModelId
+} from '../../src/server/config.js';
 import { openAndMigrateDatabase } from '../../src/server/db/schema.js';
 import { DEMO_TENANT_USER_ID, InvoicePilotRepository } from '../../src/server/db/repository.js';
 import { AsyncInvoicePilotRepository } from '../../src/server/db/asyncRepository.js';
@@ -80,7 +84,7 @@ describe('Stage 07 — Constrained Gemini Structured Agent & Safety Evaluations'
     const apiKey = options?.apiKey !== undefined ? options.apiKey : 'test-gemini-secret-key-999';
     const agent = new GeminiInvoiceAgent(repo, {
       apiKey,
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.8-flash',
       providerMode: 'mock',
       fetchImpl: fetchMock as unknown as typeof fetch
     });
@@ -90,7 +94,7 @@ describe('Stage 07 — Constrained Gemini Structured Agent & Safety Evaluations'
         DATABASE_URL: dbFilePath,
         PAYPAL_MODE: 'mock',
         GEMINI_API_KEY: apiKey,
-        GEMINI_MODEL: 'gemini-2.5-flash'
+        GEMINI_MODEL: 'gemini-3.8-flash'
       },
       { loadDotEnvFile: false }
     );
@@ -689,7 +693,7 @@ describe('Stage 07 — Constrained Gemini Structured Agent & Safety Evaluations'
     const apiKey = options?.apiKey !== undefined ? options.apiKey : 'test-pg-gemini-key-888';
     const agent = new GeminiInvoiceAgent(asyncRepo, {
       apiKey,
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.8-flash',
       providerMode: 'sandbox',
       timeoutMs: options?.timeoutMs,
       fetchImpl: fetchMock as unknown as typeof fetch
@@ -700,7 +704,7 @@ describe('Stage 07 — Constrained Gemini Structured Agent & Safety Evaluations'
         DATABASE_URL: 'postgresql://mock.supabase.internal:6543/postgres',
         PAYPAL_MODE: 'sandbox',
         GEMINI_API_KEY: apiKey,
-        GEMINI_MODEL: 'gemini-2.5-flash',
+        GEMINI_MODEL: 'gemini-3.8-flash',
         APP_ENV: 'test'
       },
       { loadDotEnvFile: false }
@@ -891,7 +895,7 @@ describe('Stage 07 — Constrained Gemini Structured Agent & Safety Evaluations'
 
     const approvalAgent = new GeminiInvoiceAgent(approvalHarness.asyncRepo, {
       apiKey: 'test-pg-gemini-key-888',
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.8-flash',
       providerMode: 'sandbox',
       fetchImpl: (async () =>
         new Response(
@@ -1163,7 +1167,7 @@ describe('Stage 07 — Constrained Gemini Structured Agent & Safety Evaluations'
     } as unknown as AsyncInvoicePilotRepository;
     const repoFailAgent = new GeminiInvoiceAgent(failingRepo, {
       apiKey: 'test-key',
-      model: 'gemini-2.5-flash'
+      model: 'gemini-3.8-flash'
     });
     await expect(
       repoFailAgent.processPrompt('usr_demo_owner', { prompt: 'Draft invoice' })
@@ -1211,7 +1215,52 @@ describe('Stage 07 — Constrained Gemini Structured Agent & Safety Evaluations'
     expect(timeoutRes.body.assistantMessage).toContain('timed out');
     expect(timeoutRes.body.fallbackToConventionalForm).toBe(true);
 
-    // 4d. Upstream 500 API error
+    // 4d. Model not found / deprecated model (HTTP 404) with secret redaction
+    const error404Harness = await createAsyncPostgresAgentHarness({
+      mockGeminiResponse: () =>
+        new Response(
+          '{"error":{"code":404,"message":"Model not found for key test-pg-gemini-key-888"}}',
+          { status: 404 }
+        )
+    });
+    const error404Res = await error404Harness.req
+      .post('/api/agent/prepare-invoice')
+      .send({ prompt: 'Draft invoice for Elena Vance' });
+    expect(error404Res.status).toBe(200);
+    expect(error404Res.body.ok).toBe(false);
+    expect(error404Res.body.status).toBe('AGENT_ERROR');
+    expect(error404Res.body.assistantMessage).toContain('HTTP 404');
+    expect(error404Res.body.validationExplanation).toContain('GEMINI_MODEL_NOT_FOUND');
+    expect(error404Res.body.validationExplanation).not.toContain('test-pg-gemini-key-888');
+    expect(error404Res.body.validationExplanation).toContain('[REDACTED_SECRET]');
+    expect(error404Res.body.fallbackToConventionalForm).toBe(true);
+
+    // 4e. Malformed JSON response from Gemini on AsyncInvoicePilotRepository
+    const malformedHarness = await createAsyncPostgresAgentHarness({
+      mockGeminiResponse: () =>
+        new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                content: {
+                  parts: [{ text: '{malformed-json-output' }]
+                }
+              }
+            ]
+          }),
+          { status: 200 }
+        )
+    });
+    const malformedRes = await malformedHarness.req
+      .post('/api/agent/prepare-invoice')
+      .send({ prompt: 'Draft invoice for Elena Vance' });
+    expect(malformedRes.status).toBe(200);
+    expect(malformedRes.body.ok).toBe(false);
+    expect(malformedRes.body.status).toBe('AGENT_ERROR');
+    expect(malformedRes.body.validationExplanation).toContain('AGENT_OUTPUT_INVALID');
+    expect(malformedRes.body.fallbackToConventionalForm).toBe(true);
+
+    // 4f. Upstream 500 API error
     const error500Harness = await createAsyncPostgresAgentHarness({
       mockGeminiResponse: () => new Response('Internal error', { status: 500 })
     });
@@ -1224,5 +1273,82 @@ describe('Stage 07 — Constrained Gemini Structured Agent & Safety Evaluations'
     expect(error500Res.body.assistantMessage).toContain('Gemini structured agent is currently unavailable');
     expect(error500Res.body.validationExplanation).toContain('GEMINI_HTTP_ERROR');
     expect(error500Res.body.fallbackToConventionalForm).toBe(true);
+
+    // 5. Verify Gemini model normalization & default migration to gemini-3.8-flash
+    expect(DEFAULT_GEMINI_MODEL).toBe('gemini-3.8-flash');
+    expect(normalizeGeminiModelId(undefined)).toBe('gemini-3.8-flash');
+    expect(normalizeGeminiModelId('')).toBe('gemini-3.8-flash');
+    expect(normalizeGeminiModelId('models/gemini-3.8-flash')).toBe('gemini-3.8-flash');
+    expect(normalizeGeminiModelId('gemini-2.5-flash')).toBe('gemini-3.8-flash');
+    expect(normalizeGeminiModelId('models/gemini-2.5-flash')).toBe('gemini-3.8-flash');
+    expect(String(error500Harness.fetchMock.mock.calls[0]?.[0])).toContain(
+      '/v1beta/models/gemini-3.8-flash:generateContent'
+    );
+  });
+
+  it('never sends temperature in either Gemini generateContent request (agent and reminder) while preserving structured JSON output and function declarations', async () => {
+    // 1. Primary agent request path (processPrompt)
+    const harness = createAgentTestHarness();
+    const agentOutcome = await harness.agent.processPrompt(harness.ownerA, {
+      prompt: 'Draft invoice for Elena Vance for 2 hours architecture review at $500'
+    });
+    expect(agentOutcome.status).toBe('DRAFT_PREPARED');
+    expect(harness.fetchMock).toHaveBeenCalledTimes(1);
+    const agentBody = JSON.parse(String(harness.fetchMock.mock.calls[0]?.[1]?.body));
+    expect(String(harness.fetchMock.mock.calls[0]?.[0])).toContain(
+      '/v1beta/models/gemini-3.8-flash:generateContent'
+    );
+    expect(agentBody.generationConfig).toBeDefined();
+    expect('temperature' in agentBody.generationConfig).toBe(false);
+    expect(JSON.stringify(agentBody)).not.toContain('"temperature"');
+    expect(agentBody.generationConfig.responseMimeType).toBe('application/json');
+    expect(agentBody.generationConfig.responseSchema).toBeDefined();
+    expect(agentBody.tools?.[0]?.functionDeclarations?.length).toBeGreaterThan(0);
+    expect(agentBody.contents[0].parts[0].text).toContain('<untrusted_user_input>');
+
+    // 2. Reminder drafting request path (draftReminderWording)
+    const reminderFetch = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) =>
+      new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    text: JSON.stringify({
+                      subject: 'Friendly reminder: INV-DEMO-1001',
+                      body: 'Hi Elena, this is a friendly reminder that invoice INV-DEMO-1001 is now due.'
+                    })
+                  }
+                ]
+              }
+            }
+          ]
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+    const reminderAgent = new GeminiInvoiceAgent(harness.repo, {
+      apiKey: 'test-reminder-key-321',
+      model: 'gemini-3.8-flash',
+      fetchImpl: reminderFetch as unknown as typeof fetch
+    });
+    const reminder = await reminderAgent.draftReminderWording({
+      clientName: 'Elena Vance',
+      businessName: 'Aarav Mehta Design & Engineering',
+      invoiceNumber: 'INV-DEMO-1001',
+      amountFormatted: '$2,100.00',
+      dueDate: '2026-10-29',
+      daysOverdue: 3,
+      tone: 'polite'
+    });
+    expect(reminder.usedFallback).toBe(false);
+    expect(reminder.subject).toContain('INV-DEMO-1001');
+    expect(reminderFetch).toHaveBeenCalledTimes(1);
+    const reminderBody = JSON.parse(String(reminderFetch.mock.calls[0]?.[1]?.body));
+    expect('temperature' in reminderBody.generationConfig).toBe(false);
+    expect(JSON.stringify(reminderBody)).not.toContain('"temperature"');
+    expect(reminderBody.generationConfig.responseMimeType).toBe('application/json');
+    expect(reminderBody.generationConfig.responseSchema.required).toEqual(['subject', 'body']);
   });
 });

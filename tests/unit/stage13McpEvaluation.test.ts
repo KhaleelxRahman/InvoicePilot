@@ -115,7 +115,7 @@ describe('Stage 13 — MCP / PayPal Agent Toolkit Evaluation & Architectural Inv
 
       const agent = new GeminiInvoiceAgent(repo, {
         apiKey: 'test-key',
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.8-flash',
         fetchImpl: fetchMock as any
       });
 
@@ -183,7 +183,7 @@ describe('Stage 13 — MCP / PayPal Agent Toolkit Evaluation & Architectural Inv
 
       const agent = new GeminiInvoiceAgent(repo, {
         apiKey: 'test-key',
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.8-flash',
         fetchImpl: fetchMock as any
       });
 
@@ -212,7 +212,7 @@ describe('Stage 13 — MCP / PayPal Agent Toolkit Evaluation & Architectural Inv
 
       const agent = new GeminiInvoiceAgent(repo, {
         apiKey: testSecret,
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.8-flash',
         fetchImpl: fetchMock as any
       });
 

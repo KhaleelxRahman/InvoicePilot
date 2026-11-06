@@ -2789,7 +2789,7 @@ export function App() {
 
               <div className="approval-slip-callout" role="note" aria-label="Agent safety boundaries">
                 <span className="approval-slip-highlight" data-testid="agent-config-status">
-                  GEMINI MODEL: {(health?.geminiModel ?? 'gemini-2.5-flash').toUpperCase()} | KEY:{' '}
+                  GEMINI MODEL: {(health?.geminiModel ?? 'gemini-3.8-flash').toUpperCase()} | KEY:{' '}
                   {health?.geminiConfigured ? 'SERVER CONFIGURED' : 'NOT CONFIGURED (FALLBACK READY)'}
                 </span>
                 <p style={{ margin: 0 }} className="serif-document">

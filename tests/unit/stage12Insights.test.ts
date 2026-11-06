@@ -616,7 +616,7 @@ describe('Stage 12 — Grounded Aging and Cash-Flow Insights', () => {
 
       const agent = new GeminiInvoiceAgent(repo, {
         apiKey: 'test-gemini-key',
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.8-flash',
         fetchImpl: fetchMock as any
       });
 
@@ -636,7 +636,7 @@ describe('Stage 12 — Grounded Aging and Cash-Flow Insights', () => {
 
       const agent = new GeminiInvoiceAgent(repo, {
         apiKey: '', // unconfigured
-        model: 'gemini-2.5-flash'
+        model: 'gemini-3.8-flash'
       });
 
       const outcome = await agent.processPrompt(user.id, {

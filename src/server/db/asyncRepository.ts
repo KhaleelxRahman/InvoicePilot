@@ -249,6 +249,51 @@ export class AsyncInvoicePilotRepository {
     return Number(res.changes) > 0;
   }
 
+  private async purgeUserAndOwnedRecords(userId: string): Promise<void> {
+    // 1. Delete leaf session, audit, and notification records
+    await this.db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
+    await this.db.prepare('DELETE FROM activity_log WHERE owner_user_id = ?').run(userId);
+    await this.db.prepare('DELETE FROM notifications WHERE owner_user_id = ?').run(userId);
+
+    // 2. Delete invoice-dependent child tables before invoices
+    await this.db
+      .prepare(
+        'DELETE FROM reminders WHERE owner_user_id = ? OR invoice_id IN (SELECT id FROM invoices WHERE owner_user_id = ?)'
+      )
+      .run(userId, userId);
+    await this.db
+      .prepare(
+        'DELETE FROM pending_actions WHERE owner_user_id = ? OR target_invoice_id IN (SELECT id FROM invoices WHERE owner_user_id = ?)'
+      )
+      .run(userId, userId);
+    await this.db
+      .prepare(
+        'DELETE FROM invoice_items WHERE owner_user_id = ? OR invoice_id IN (SELECT id FROM invoices WHERE owner_user_id = ?)'
+      )
+      .run(userId, userId);
+
+    // 3. Delete invoices before clients (invoices.client_id REFERENCES clients(id) ON DELETE RESTRICT)
+    await this.db.prepare('DELETE FROM invoices WHERE owner_user_id = ?').run(userId);
+
+    // 4. Delete templates and onboarding progress before clients (onboarding_progress.first_client_id REFERENCES clients(id))
+    await this.db.prepare('DELETE FROM invoice_templates WHERE owner_user_id = ?').run(userId);
+    await this.db.prepare('DELETE FROM onboarding_progress WHERE user_id = ?').run(userId);
+
+    // 5. Delete chat_messages before chat_threads (both tables use owner_user_id, not user_id)
+    await this.db
+      .prepare(
+        'DELETE FROM chat_messages WHERE owner_user_id = ? OR thread_id IN (SELECT id FROM chat_threads WHERE owner_user_id = ?)'
+      )
+      .run(userId, userId);
+    await this.db.prepare('DELETE FROM chat_threads WHERE owner_user_id = ?').run(userId);
+
+    // 6. Delete clients, settings, PayPal connections, and the user row
+    await this.db.prepare('DELETE FROM clients WHERE owner_user_id = ?').run(userId);
+    await this.db.prepare('DELETE FROM settings WHERE user_id = ?').run(userId);
+    await this.db.prepare('DELETE FROM paypal_connections WHERE user_id = ?').run(userId);
+    await this.db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+  }
+
   public async deleteUserAccount(
     userId: string
   ): Promise<{ deleted: boolean; isDemo: boolean }> {
@@ -263,20 +308,7 @@ export class AsyncInvoicePilotRepository {
     }
 
     await this.withTransaction(async () => {
-      await this.db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
-      await this.db.prepare('DELETE FROM activity_log WHERE owner_user_id = ?').run(userId);
-      await this.db.prepare('DELETE FROM notifications WHERE owner_user_id = ?').run(userId);
-      await this.db.prepare('DELETE FROM reminders WHERE owner_user_id = ?').run(userId);
-      await this.db.prepare('DELETE FROM pending_actions WHERE owner_user_id = ?').run(userId);
-      await this.db.prepare('DELETE FROM invoice_items WHERE owner_user_id = ?').run(userId);
-      await this.db.prepare('DELETE FROM invoices WHERE owner_user_id = ?').run(userId);
-      await this.db.prepare('DELETE FROM invoice_templates WHERE owner_user_id = ?').run(userId);
-      await this.db.prepare('DELETE FROM onboarding_progress WHERE user_id = ?').run(userId);
-      await this.db.prepare('DELETE FROM chat_threads WHERE user_id = ?').run(userId);
-      await this.db.prepare('DELETE FROM clients WHERE owner_user_id = ?').run(userId);
-      await this.db.prepare('DELETE FROM settings WHERE user_id = ?').run(userId);
-      await this.db.prepare('DELETE FROM paypal_connections WHERE user_id = ?').run(userId);
-      await this.db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+      await this.purgeUserAndOwnedRecords(userId);
     });
 
     return { deleted: true, isDemo: false };
@@ -2292,26 +2324,7 @@ export class AsyncInvoicePilotRepository {
       const demoUsers = demoUserRows.map((u) => u.id);
 
       for (const uid of demoUsers) {
-        await this.db.prepare('DELETE FROM sessions WHERE user_id = ?').run(uid);
-        await this.db.prepare('DELETE FROM activity_log WHERE owner_user_id = ?').run(uid);
-        await this.db.prepare('DELETE FROM notifications WHERE owner_user_id = ?').run(uid);
-        await this.db.prepare('DELETE FROM reminders WHERE owner_user_id = ?').run(uid);
-        await this.db.prepare('DELETE FROM pending_actions WHERE owner_user_id = ?').run(uid);
-        await this.db.prepare('DELETE FROM invoice_items WHERE owner_user_id = ?').run(uid);
-        await this.db.prepare('DELETE FROM invoices WHERE owner_user_id = ?').run(uid);
-        try {
-          await this.db.prepare('DELETE FROM invoice_templates WHERE owner_user_id = ?').run(uid);
-        } catch {}
-        try {
-          await this.db.prepare('DELETE FROM onboarding_progress WHERE user_id = ?').run(uid);
-        } catch {}
-        try {
-          await this.db.prepare('DELETE FROM chat_threads WHERE user_id = ?').run(uid);
-        } catch {}
-        await this.db.prepare('DELETE FROM clients WHERE owner_user_id = ?').run(uid);
-        await this.db.prepare('DELETE FROM settings WHERE user_id = ?').run(uid);
-        await this.db.prepare('DELETE FROM paypal_connections WHERE user_id = ?').run(uid);
-        await this.db.prepare('DELETE FROM users WHERE id = ?').run(uid);
+        await this.purgeUserAndOwnedRecords(uid);
       }
 
       const now = new Date().toISOString();

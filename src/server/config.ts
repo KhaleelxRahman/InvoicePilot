@@ -9,6 +9,26 @@ import { loadDotEnvFileIfExists } from './paypal/sandboxProof.js';
 export const PayPalModeSchema = z.enum(['sandbox', 'mock']);
 export type PayPalMode = z.infer<typeof PayPalModeSchema>;
 
+export const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
+
+const LEGACY_DEPRECATED_GEMINI_MODELS = new Set([
+  'gemini-2.5-flash',
+  'gemini-1.5-flash'
+]);
+
+/**
+ * Normalizes a configured Gemini model identifier:
+ * - Strips optional leading `models/` resource prefix.
+ * - Migrates empty or retired legacy Flash defaults to `DEFAULT_GEMINI_MODEL` (`gemini-3.8-flash`).
+ */
+export function normalizeGeminiModelId(rawModel?: string): string {
+  const trimmed = (rawModel ?? '').trim().replace(/^models\//i, '');
+  if (!trimmed || LEGACY_DEPRECATED_GEMINI_MODELS.has(trimmed.toLowerCase())) {
+    return DEFAULT_GEMINI_MODEL;
+  }
+  return trimmed;
+}
+
 export interface AppConfig {
   appEnv: 'development' | 'test' | 'production';
   port: number;
@@ -85,7 +105,7 @@ export function loadAppConfig(
     paypalMode: modeResult.data,
     authProvider: (merged.AUTH_PROVIDER ?? 'session').trim() || 'session',
     geminiApiKey: (merged.GEMINI_API_KEY ?? '').trim(),
-    geminiModel: (merged.GEMINI_MODEL ?? 'gemini-2.5-flash').trim() || 'gemini-2.5-flash',
+    geminiModel: normalizeGeminiModelId(merged.GEMINI_MODEL),
     geminiTimeoutMs: safeGeminiTimeoutMs,
     paypalClientId: (merged.PAYPAL_CLIENT_ID ?? '').trim(),
     paypalClientSecret: (merged.PAYPAL_CLIENT_SECRET ?? '').trim(),

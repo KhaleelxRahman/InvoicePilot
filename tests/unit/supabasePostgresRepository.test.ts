@@ -687,4 +687,309 @@ describe('Supabase PostgreSQL Repository Engine & Integration', () => {
     expect(listActionsRes.body.actions.length).toBeGreaterThanOrEqual(1);
     expect(listActionsRes.body.actions[0].slip.invoiceNumber).toBe('INV-SLIP-001');
   });
+
+  // =========================================================================
+  // 11. PostgreSQL Account Deletion Cascade & Transaction Rollback Safety
+  // =========================================================================
+  it('deletes a PostgreSQL user account owning invoices, pending actions, reminders, templates, onboarding, and chat threads via POST /api/account/delete while preserving other tenants and rolling back on mid-transaction failure', async () => {
+    const memDb = newDb({ autoCreateForeignKeyIndices: true });
+    memDb.public.registerFunction({
+      name: 'length',
+      args: [DataType.text],
+      returns: DataType.integer,
+      implementation: (str: string) => (str ? str.length : 0)
+    });
+    const ddl = fs.readFileSync(
+      path.resolve(process.cwd(), 'migrations/001_initial_supabase_schema.sql'),
+      'utf-8'
+    );
+    memDb.public.query(ddl);
+
+    const { Pool } = memDb.adapters.createPg();
+    const pgPool = new Pool();
+    const poolAdapter = new PostgresPoolAdapter(pgPool);
+    const asyncRepo = new AsyncInvoicePilotRepository(poolAdapter);
+    const config = loadAppConfig(
+      {
+        DATABASE_URL: 'postgresql://mock.supabase.internal:6543/postgres',
+        PAYPAL_MODE: 'sandbox',
+        APP_ENV: 'test'
+      },
+      { loadDotEnvFile: false }
+    );
+    const app = createApp(config, undefined, asyncRepo as any);
+
+    // 1. Register target user to delete and an unrelated second tenant
+    const targetReg = await request(app).post('/api/auth/register').send({
+      email: 'delete.owner@example.com',
+      password: 'Password123!',
+      displayName: 'Delete Owner'
+    });
+    expect(targetReg.status).toBe(201);
+    const targetUserId = targetReg.body.user.id;
+    const targetToken = targetReg.body.sessionToken;
+
+    const otherReg = await request(app).post('/api/auth/register').send({
+      email: 'surviving.tenant@example.com',
+      password: 'Password123!',
+      displayName: 'Surviving Tenant'
+    });
+    expect(otherReg.status).toBe(201);
+    const otherUserId = otherReg.body.user.id;
+
+    // 2. Populate target user with client, onboarding first_client_id, invoice, items, pending action, reminder, template, notification, and chat_threads/chat_messages
+    const targetClient = await asyncRepo.createClient(targetUserId, {
+      fullName: 'Cascade Client',
+      email: 'cascade.client@example.com',
+      defaultCurrency: 'USD'
+    });
+
+    await asyncRepo.updateOnboardingProgress(targetUserId, {
+      currentStep: 4,
+      completed: true,
+      firstClientId: targetClient.id
+    });
+
+    const targetInvoice = await asyncRepo.createInvoiceDraft(targetUserId, {
+      clientId: targetClient.id,
+      invoiceNumber: 'INV-CASCADE-001',
+      currencyCode: 'USD',
+      issueDate: '2026-11-01',
+      dueDate: '2026-11-15',
+      items: [
+        {
+          description: 'Database FK Cascade Verification',
+          quantity: 2,
+          unitAmountMinor: 50000,
+          currencyCode: 'USD'
+        }
+      ]
+    });
+
+    const { action } = await asyncRepo.requestInvoiceSendApproval(targetUserId, targetInvoice.id);
+    expect(action.state).toBe('PENDING_APPROVAL');
+
+    const reminder = await asyncRepo.createReminder(targetUserId, {
+      invoiceId: targetInvoice.id,
+      tone: 'polite',
+      subject: 'Reminder for INV-CASCADE-001',
+      body: 'Friendly reminder body'
+    });
+    expect(reminder.id).toBeTruthy();
+
+    await asyncRepo.createTemplate(targetUserId, {
+      title: 'Retainer Template',
+      description: 'Monthly retainer item',
+      unitAmountMinor: 100000,
+      currencyCode: 'USD'
+    });
+
+    await asyncRepo.createNotification(targetUserId, {
+      title: 'Test Notification',
+      body: 'Notification body'
+    });
+
+    await pgPool.query(
+      `INSERT INTO chat_threads (id, owner_user_id, title, created_at, updated_at)
+       VALUES ($1, $2, 'Invoice Thread', NOW(), NOW())`,
+      ['thr_cascade_01', targetUserId]
+    );
+    await pgPool.query(
+      `INSERT INTO chat_messages (id, thread_id, owner_user_id, role, content, created_at)
+       VALUES ($1, $2, $3, 'user', 'Draft an invoice', NOW())`,
+      ['msg_cascade_01', 'thr_cascade_01', targetUserId]
+    );
+
+    // Populate unrelated tenant
+    const otherClient = await asyncRepo.createClient(otherUserId, {
+      fullName: 'Unrelated Client',
+      email: 'unrelated@example.com',
+      defaultCurrency: 'USD'
+    });
+    const otherInvoice = await asyncRepo.createInvoiceDraft(otherUserId, {
+      clientId: otherClient.id,
+      invoiceNumber: 'INV-SURVIVE-001',
+      currencyCode: 'USD',
+      issueDate: '2026-11-01',
+      dueDate: '2026-11-15',
+      items: [
+        {
+          description: 'Unrelated Work',
+          quantity: 1,
+          unitAmountMinor: 75000,
+          currencyCode: 'USD'
+        }
+      ]
+    });
+
+    // 3. Execute real account deletion via POST /api/account/delete
+    const targetItemsBefore = await pgPool.query(
+      'SELECT id FROM invoice_items WHERE owner_user_id = $1',
+      [targetUserId]
+    );
+    expect(targetItemsBefore.rows).toHaveLength(1);
+    const otherItemsBefore = await pgPool.query(
+      'SELECT id FROM invoice_items WHERE owner_user_id = $1',
+      [otherUserId]
+    );
+    expect(otherItemsBefore.rows).toHaveLength(1);
+
+    // Record every purge statement and its affected row count to prove the invoice_items purge SQL parses and executes
+    const purgeRuns: Array<{ sql: string; changes: number }> = [];
+    const recordingPrepare = poolAdapter.prepare.bind(poolAdapter);
+    poolAdapter.prepare = ((sql: string) => {
+      const stmt = recordingPrepare(sql);
+      if (!sql.trim().startsWith('DELETE FROM')) return stmt;
+      return {
+        ...stmt,
+        run: async (...params: unknown[]) => {
+          const res = await stmt.run(...params);
+          purgeRuns.push({ sql, changes: Number(res.changes) });
+          return res;
+        }
+      };
+    }) as typeof poolAdapter.prepare;
+    const delRes = await request(app)
+      .post('/api/account/delete')
+      .set('Authorization', `Bearer ${targetToken}`)
+      .send({ confirmEmail: 'delete.owner@example.com' });
+
+    expect(delRes.status).toBe(200);
+    expect(delRes.body.ok).toBe(true);
+    expect(delRes.body.message).toContain('permanently deleted');
+    poolAdapter.prepare = recordingPrepare;
+
+    const itemsPurge = purgeRuns.find((r) => r.sql.includes('DELETE FROM invoice_items'));
+    expect(itemsPurge).toBeDefined();
+    expect(itemsPurge!.sql).toContain('DELETE FROM invoice_items WHERE owner_user_id = ?');
+    expect(itemsPurge!.changes).toBe(1);
+    // Global tables are never purged by account deletion
+    expect(purgeRuns.some((r) => /webhook_events|rate_limits/.test(r.sql))).toBe(false);
+    const targetItemsAfter = await pgPool.query(
+      'SELECT id FROM invoice_items WHERE owner_user_id = $1',
+      [targetUserId]
+    );
+    expect(targetItemsAfter.rows).toHaveLength(0);
+    const otherItemsAfter = await pgPool.query(
+      'SELECT id FROM invoice_items WHERE owner_user_id = $1',
+      [otherUserId]
+    );
+    expect(otherItemsAfter.rows).toHaveLength(1);
+
+    // Verify all targetUserId rows are purged across PostgreSQL tables
+    expect(await asyncRepo.getUserById(targetUserId)).toBeNull();
+    expect(await asyncRepo.listClientsForOwner(targetUserId)).toHaveLength(0);
+    expect(await asyncRepo.listInvoicesForOwner(targetUserId)).toHaveLength(0);
+    expect(await asyncRepo.listRemindersForOwner(targetUserId)).toHaveLength(0);
+    const remainingActions = await pgPool.query(
+      'SELECT id FROM pending_actions WHERE owner_user_id = $1',
+      [targetUserId]
+    );
+    expect(remainingActions.rows).toHaveLength(0);
+    const remainingThreads = await pgPool.query(
+      'SELECT id FROM chat_threads WHERE owner_user_id = $1',
+      [targetUserId]
+    );
+    expect(remainingThreads.rows).toHaveLength(0);
+    const remainingMessages = await pgPool.query(
+      'SELECT id FROM chat_messages WHERE owner_user_id = $1',
+      [targetUserId]
+    );
+    expect(remainingMessages.rows).toHaveLength(0);
+
+    // 4. Verify unrelated tenant's records remain completely untouched
+    expect(await asyncRepo.getUserById(otherUserId)).not.toBeNull();
+    expect(await asyncRepo.listClientsForOwner(otherUserId)).toHaveLength(1);
+    const survivingInvoices = await asyncRepo.listInvoicesForOwner(otherUserId);
+    expect(survivingInvoices).toHaveLength(1);
+    expect(survivingInvoices[0].id).toBe(otherInvoice.id);
+
+    // 5. Verify mid-deletion failure runs inside a single transaction and issues ROLLBACK (never COMMIT).
+    // NOTE: pg-mem's pg.Pool adapter does not honor ROLLBACK at the data layer, so this asserts the
+    // transaction protocol emitted to the pooled client (BEGIN -> ordered DELETEs -> ROLLBACK).
+    const rollbackOwner = await asyncRepo.createUser({
+      email: 'rollback.owner@example.com',
+      displayName: 'Rollback Owner'
+    });
+    const rollbackClient = await asyncRepo.createClient(rollbackOwner.id, {
+      fullName: 'Rollback Client',
+      email: 'rollback.client@example.com',
+      defaultCurrency: 'USD'
+    });
+    await asyncRepo.createInvoiceDraft(rollbackOwner.id, {
+      clientId: rollbackClient.id,
+      invoiceNumber: 'INV-ROLLBACK-001',
+      currencyCode: 'USD',
+      issueDate: '2026-11-01',
+      dueDate: '2026-11-15',
+      items: [{ description: 'Rollback Work', quantity: 1, unitAmountMinor: 10000, currencyCode: 'USD' }]
+    });
+
+    const txQueries: string[] = [];
+    const origConnect = pgPool.connect.bind(pgPool);
+    (pgPool as any).connect = async () => {
+      const client = await origConnect();
+      const origQuery = client.query.bind(client);
+      (client as any).query = (text: any, ...rest: any[]) => {
+        txQueries.push(typeof text === 'string' ? text : String(text?.text ?? ''));
+        return origQuery(text, ...rest);
+      };
+      return client;
+    };
+    const origPrepare = poolAdapter.prepare.bind(poolAdapter);
+    poolAdapter.prepare = ((sql: string) => {
+      if (sql.includes('DELETE FROM users WHERE id = ?')) {
+        return {
+          get: async () => undefined,
+          all: async () => [],
+          run: async () => {
+            throw new Error('SIMULATED_MID_DELETION_FAILURE');
+          }
+        };
+      }
+      return origPrepare(sql);
+    }) as typeof poolAdapter.prepare;
+
+    try {
+      await expect(asyncRepo.deleteUserAccount(rollbackOwner.id)).rejects.toThrow(
+        'SIMULATED_MID_DELETION_FAILURE'
+      );
+    } finally {
+      poolAdapter.prepare = origPrepare;
+      (pgPool as any).connect = origConnect;
+    }
+
+    expect(txQueries[0]).toBe('BEGIN;');
+    expect(txQueries).toContain('ROLLBACK;');
+    expect(txQueries).not.toContain('COMMIT;');
+    const idx = (needle: string) => txQueries.findIndex((q) => q.includes(needle));
+    // Every purge statement ran on the dedicated transaction client (AsyncLocalStorage scope), not the shared pool
+    for (const table of [
+      'sessions',
+      'activity_log',
+      'notifications',
+      'reminders',
+      'pending_actions',
+      'invoice_items',
+      'invoices',
+      'invoice_templates',
+      'onboarding_progress',
+      'chat_messages',
+      'chat_threads',
+      'clients',
+      'settings',
+      'paypal_connections'
+    ]) {
+      expect(idx(`DELETE FROM ${table} `)).toBeGreaterThan(0);
+    }
+    // Other tenant remains intact after the failed deletion attempt
+    expect(await asyncRepo.getUserById(otherUserId)).not.toBeNull();
+    expect(await asyncRepo.listInvoicesForOwner(otherUserId)).toHaveLength(1);
+    // Deletes ran on the transaction client in FK-safe order before the rollback
+    expect(idx('DELETE FROM invoices')).toBeGreaterThan(idx('DELETE FROM invoice_items'));
+    expect(idx('DELETE FROM clients')).toBeGreaterThan(idx('DELETE FROM invoices'));
+    expect(idx('DELETE FROM clients')).toBeGreaterThan(idx('DELETE FROM onboarding_progress'));
+    expect(idx('DELETE FROM chat_threads')).toBeGreaterThan(idx('DELETE FROM chat_messages'));
+    expect(idx('ROLLBACK;')).toBeGreaterThan(idx('DELETE FROM clients'));
+  });
 });
