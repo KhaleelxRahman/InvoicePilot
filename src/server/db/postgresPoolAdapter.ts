@@ -41,7 +41,8 @@ export function buildPostgresSslConfig(
     };
   }
 
-  const isNetlify = Boolean(
+  const isServerless = Boolean(
+    process.env.VERCEL ||
     process.env.NETLIFY === 'true' ||
     process.env.LAMBDA_TASK_ROOT ||
     process.env.AWS_LAMBDA_FUNCTION_NAME
@@ -50,7 +51,7 @@ export function buildPostgresSslConfig(
   const allowInsecureTls =
     /sslmode=no-verify/i.test(connectionString) ||
     process.env.SUPABASE_SSL_REJECT_UNAUTHORIZED === 'false' ||
-    isNetlify;
+    isServerless;
 
   return {
     rejectUnauthorized: !allowInsecureTls

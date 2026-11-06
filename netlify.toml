@@ -31,3 +31,13 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+# Security Headers & Content Security Policy
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://api-m.sandbox.paypal.com https://api.sandbox.paypal.com https://generativelanguage.googleapis.com; frame-ancestors 'none';"

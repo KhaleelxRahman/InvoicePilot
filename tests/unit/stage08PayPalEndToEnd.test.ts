@@ -441,6 +441,83 @@ describe('Stage 08 — End-to-End PayPal Invoice Send, Status Refresh, Timeout R
       expect(duplicateRes.status).toBe(200);
       expect(duplicateRes.body.received).toBe(true);
       expect(duplicateRes.body.deduplicated).toBe(true);
+
+      // 4. INVOICING.INVOICE.CANCELLED webhook transitions invoice to CANCELLED and records audit log
+      const cancelledPayload = {
+        id: 'WH-EVT-CANCEL-9901',
+        event_type: 'INVOICING.INVOICE.CANCELLED',
+        create_time: '2026-11-01T00:02:00Z',
+        resource: {
+          invoice: {
+            id: 'MOCK-LOCAL-0001',
+            status: 'CANCELLED'
+          }
+        }
+      };
+
+      const cancelledRes = await request(app)
+        .post('/api/webhooks/paypal')
+        .set('paypal-transmission-id', 'tx-003')
+        .set('paypal-transmission-time', '2026-11-01T00:02:00Z')
+        .set('paypal-transmission-sig', 'MOCK-VERIFIED-SIGNATURE')
+        .set('paypal-cert-url', 'https://api.sandbox.paypal.com/v1/notifications/certs/CERT')
+        .set('paypal-auth-algo', 'SHA256withRSA')
+        .send(cancelledPayload);
+      expect(cancelledRes.status).toBe(200);
+      expect(cancelledRes.body.received).toBe(true);
+      expect(cancelledRes.body.deduplicated).toBe(false);
+      expect(cancelledRes.body.updatedInvoiceId).toBe(seed.invoiceId);
+
+      const afterCancelled = repo.getInvoiceForOwner(DEMO_TENANT_USER_ID, seed.invoiceId);
+      expect(afterCancelled.providerStatus).toBe('CANCELLED');
+      expect(afterCancelled.localStatus).toBe('CANCELLED');
+
+      // 5. Duplicate of CANCELLED webhook is idempotently deduplicated
+      const duplicateCancelledRes = await request(app)
+        .post('/api/webhooks/paypal')
+        .set('paypal-transmission-id', 'tx-003')
+        .set('paypal-transmission-time', '2026-11-01T00:02:00Z')
+        .set('paypal-transmission-sig', 'MOCK-VERIFIED-SIGNATURE')
+        .set('paypal-cert-url', 'https://api.sandbox.paypal.com/v1/notifications/certs/CERT')
+        .set('paypal-auth-algo', 'SHA256withRSA')
+        .send(cancelledPayload);
+      expect(duplicateCancelledRes.status).toBe(200);
+      expect(duplicateCancelledRes.body.deduplicated).toBe(true);
+
+      // 6. INVOICING.INVOICE.REFUNDED webhook transitions invoice provider status to REFUNDED
+      const refundedPayload = {
+        id: 'WH-EVT-REFUND-9902',
+        event_type: 'INVOICING.INVOICE.REFUNDED',
+        create_time: '2026-11-01T00:03:00Z',
+        resource: {
+          invoice: {
+            id: 'MOCK-LOCAL-0001',
+            status: 'REFUNDED'
+          }
+        }
+      };
+
+      const refundedRes = await request(app)
+        .post('/api/webhooks/paypal')
+        .set('paypal-transmission-id', 'tx-004')
+        .set('paypal-transmission-time', '2026-11-01T00:03:00Z')
+        .set('paypal-transmission-sig', 'MOCK-VERIFIED-SIGNATURE')
+        .set('paypal-cert-url', 'https://api.sandbox.paypal.com/v1/notifications/certs/CERT')
+        .set('paypal-auth-algo', 'SHA256withRSA')
+        .send(refundedPayload);
+      expect(refundedRes.status).toBe(200);
+      expect(refundedRes.body.received).toBe(true);
+      expect(refundedRes.body.deduplicated).toBe(false);
+      expect(refundedRes.body.updatedInvoiceId).toBe(seed.invoiceId);
+
+      const afterRefunded = repo.getInvoiceForOwner(DEMO_TENANT_USER_ID, seed.invoiceId);
+      expect(afterRefunded.providerStatus).toBe('REFUNDED');
+      expect(afterRefunded.localStatus).toBe('CANCELLED');
+
+      // Verify activity log captured CANCELLED and REFUNDED events
+      const activity = repo.listActivityForOwner(DEMO_TENANT_USER_ID);
+      expect(activity.some((a) => a.action === 'WEBHOOK_EVENT_PROCESSED' && a.detailJson.includes('CANCELLED'))).toBe(true);
+      expect(activity.some((a) => a.action === 'WEBHOOK_EVENT_PROCESSED' && a.detailJson.includes('REFUNDED'))).toBe(true);
     } finally {
       db.close();
     }

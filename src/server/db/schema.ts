@@ -182,7 +182,7 @@ CREATE TABLE IF NOT EXISTS invoices (
   provider_mode TEXT NOT NULL DEFAULT 'sandbox' CHECK (provider_mode IN ('sandbox', 'mock')),
   provider_invoice_id TEXT,
   provider_status TEXT NOT NULL DEFAULT 'NONE' CHECK (
-    provider_status IN ('NONE', 'DRAFT', 'SENT', 'UNPAID', 'PAID', 'MARKED_AS_PAID', 'CANCELLED', 'UNKNOWN')
+    provider_status IN ('NONE', 'DRAFT', 'SENT', 'UNPAID', 'PAID', 'MARKED_AS_PAID', 'CANCELLED', 'REFUNDED', 'UNKNOWN')
   ),
   provider_recipient_view_url TEXT,
   provider_invoicer_view_url TEXT,

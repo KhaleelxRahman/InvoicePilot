@@ -1697,7 +1697,7 @@ export class InvoicePilotRepository {
       snapshot.providerStatus === 'PAID' ||
       snapshot.providerStatus === 'MARKED_AS_PAID'
         ? 'SENT'
-        : snapshot.providerStatus === 'CANCELLED'
+        : snapshot.providerStatus === 'CANCELLED' || snapshot.providerStatus === 'REFUNDED'
           ? 'CANCELLED'
           : existing.localStatus;
 

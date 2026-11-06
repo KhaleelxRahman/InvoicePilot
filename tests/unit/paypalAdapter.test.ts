@@ -241,4 +241,84 @@ describe('Stage 03 — Server PayPal Adapter & Mode Separation', () => {
       expect(sendRes.error.retryableAfterReconcile).toBe(true);
     }
   });
+
+  it('SandboxPayPalAdapter.verifyWebhookSignature exercises real verification payloads and returns SUCCESS/FAILURE', async () => {
+    let capturedBody: any = null;
+
+    const webhookFetch: typeof fetch = async (input, init) => {
+      const url = String(input);
+      if (url.endsWith('/v1/oauth2/token')) {
+        return new Response(
+          JSON.stringify({
+            access_token: 'A21AA_VALID_TOKEN_WEBHOOK',
+            token_type: 'Bearer',
+            expires_in: 3600
+          }),
+          { status: 200 }
+        );
+      }
+
+      if (url.endsWith('/v1/notifications/verify-webhook-signature')) {
+        capturedBody = JSON.parse(String(init?.body));
+        const status = capturedBody.transmission_sig === 'VALID_SIG' ? 'SUCCESS' : 'FAILURE';
+        return new Response(JSON.stringify({ verification_status: status }), { status: 200 });
+      }
+
+      return new Response('{}', { status: 400 });
+    };
+
+    const adapter = createPayPalAdapter({
+      mode: 'sandbox',
+      clientId: 'WH_CLIENT_ID',
+      clientSecret: 'WH_CLIENT_SECRET',
+      fetchImpl: webhookFetch
+    });
+
+    // 1. Missing header yields validation error
+    const missingRes = await adapter.verifyWebhookSignature!({
+      authAlgo: '',
+      certUrl: '',
+      transmissionId: '',
+      transmissionSig: '',
+      transmissionTime: '',
+      webhookId: '',
+      webhookEvent: {}
+    });
+    expect(missingRes.ok).toBe(false);
+    if (!missingRes.ok) {
+      expect(missingRes.error.code).toBe('VALIDATION_ERROR');
+    }
+
+    // 2. Verified SUCCESS signature
+    const validRes = await adapter.verifyWebhookSignature!({
+      authAlgo: 'SHA256withRSA',
+      certUrl: 'https://api.sandbox.paypal.com/v1/notifications/certs/CERT',
+      transmissionId: 'tx-123',
+      transmissionSig: 'VALID_SIG',
+      transmissionTime: '2026-11-01T00:00:00Z',
+      webhookId: 'WH-TEST-REAL',
+      webhookEvent: { id: 'EVT-1', event_type: 'INVOICING.INVOICE.PAID' }
+    });
+    expect(validRes.ok).toBe(true);
+    if (validRes.ok) {
+      expect(validRes.data.verificationStatus).toBe('SUCCESS');
+      expect(capturedBody.webhook_id).toBe('WH-TEST-REAL');
+      expect(capturedBody.transmission_sig).toBe('VALID_SIG');
+    }
+
+    // 3. Invalid FAILURE signature
+    const invalidRes = await adapter.verifyWebhookSignature!({
+      authAlgo: 'SHA256withRSA',
+      certUrl: 'https://api.sandbox.paypal.com/v1/notifications/certs/CERT',
+      transmissionId: 'tx-123',
+      transmissionSig: 'BAD_SIG',
+      transmissionTime: '2026-11-01T00:00:00Z',
+      webhookId: 'WH-TEST-REAL',
+      webhookEvent: { id: 'EVT-1', event_type: 'INVOICING.INVOICE.PAID' }
+    });
+    expect(invalidRes.ok).toBe(true);
+    if (invalidRes.ok) {
+      expect(invalidRes.data.verificationStatus).toBe('FAILURE');
+    }
+  });
 });

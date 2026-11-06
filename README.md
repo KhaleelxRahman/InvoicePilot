@@ -1,303 +1,467 @@
 # InvoicePilot
 
-> **AI-Assisted Invoicing & Safe Payment Workspace for Freelancers & Consultants**  
-> **AI-Assisted Invoicing & Safe Payment Workspace for Freelancers & Consultants**
+> **AI-Assisted Invoicing & Human-Approved Payment Workspace for Freelancers & Consultants**
 > *Built for the PayPal AI Hackathon — Build What's Next with PayPal and AI.*
 
-[![Live Website](https://img.shields.io/badge/Live%20Demo-inquisitive--biscochitos--83e042.netlify.app-00457C?style=for-the-badge&logo=netlify&logoColor=white)](https://inquisitive-biscochitos-83e042.netlify.app/)
+[![Live Deployment](https://img.shields.io/badge/Vercel-invoicepilot--beryl.vercel.app-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://invoicepilot-beryl.vercel.app)
 [![GitHub Repository](https://img.shields.io/badge/GitHub-KhaleelxRahman%2FInvoicePilot-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/KhaleelxRahman/InvoicePilot)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
-[![Playwright Tests](https://img.shields.io/badge/Playwright-36%2F36%20Passed-brightgreen.svg?style=for-the-badge&logo=playwright&logoColor=white)](tests/e2e)
-[![Vitest Unit Tests](https://img.shields.io/badge/Vitest-128%2F128%20Passed-brightgreen.svg?style=for-the-badge&logo=vitest&logoColor=white)](tests/unit)
+[![Playwright E2E](https://img.shields.io/badge/Playwright-36%2F36%20Passed-brightgreen.svg?style=for-the-badge&logo=playwright&logoColor=white)](tests/e2e)
+[![Vitest Suite](https://img.shields.io/badge/Vitest-135%2F135%20Passed-brightgreen.svg?style=for-the-badge&logo=vitest&logoColor=white)](tests/unit)
 [![TypeScript 5.7](https://img.shields.io/badge/TypeScript-5.7-3178C6.svg?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Database: Supabase](https://img.shields.io/badge/Database-Supabase%20PostgreSQL-3ECF8E.svg?style=for-the-badge&logo=supabase&logoColor=white)](https://supabase.com/)
 
 ---
 
-## 🌐 Live Application & Official Links
+## Table of Contents
 
-* **Production Deployed Web App**: [https://inquisitive-biscochitos-83e042.netlify.app/](https://inquisitive-biscochitos-83e042.netlify.app/)
-* **Live Health & Provider Status**: [https://inquisitive-biscochitos-83e042.netlify.app/api/health](https://inquisitive-biscochitos-83e042.netlify.app/api/health)
-* **GitHub Repository**: [https://github.com/KhaleelxRahman/InvoicePilot](https://github.com/KhaleelxRahman/InvoicePilot)
+- [InvoicePilot](#invoicepilot)
+  - [Table of Contents](#table-of-contents)
+  - [1. Project Overview](#1-project-overview)
+  - [2. Verified Product Features](#2-verified-product-features)
+  - [3. Technology Stack](#3-technology-stack)
+  - [4. Architecture Overview](#4-architecture-overview)
+  - [5. Directory Structure](#5-directory-structure)
+  - [6. Prerequisites](#6-prerequisites)
+  - [7. Local Windows / PowerShell Setup](#7-local-windows--powershell-setup)
+  - [8. Installation \& Development Commands](#8-installation--development-commands)
+  - [9. Environment Variables Reference](#9-environment-variables-reference)
+  - [10. SQLite Local Development](#10-sqlite-local-development)
+  - [11. Supabase Production Database Setup](#11-supabase-production-database-setup)
+  - [12. Database Migration Safety](#12-database-migration-safety)
+  - [13. PayPal Sandbox Configuration](#13-paypal-sandbox-configuration)
+  - [14. PayPal Webhook Setup](#14-paypal-webhook-setup)
+  - [15. Gemini AI Configuration \& Fallback](#15-gemini-ai-configuration--fallback)
+  - [16. Testing Commands \& Verification](#16-testing-commands--verification)
+  - [17. Production Build](#17-production-build)
+  - [18. Vercel Deployment](#18-vercel-deployment)
+  - [19. Health-Check Verification](#19-health-check-verification)
+  - [20. Troubleshooting](#20-troubleshooting)
+  - [21. Security Guidelines](#21-security-guidelines)
+  - [22. Known Limitations \& Non-Goals](#22-known-limitations--non-goals)
+  - [23. Documentation Index \& License](#23-documentation-index--license)
 
 ---
 
-## 1. Executive Summary & Problem Statement
+## 1. Project Overview
 
-### The Problem
-Independent freelancers, contractors, and boutique agencies lose an average of **20+ hours each month** on administrative billing friction:
-1. **Manual Invoicing Overhead**: Manually creating line items, calculating fractional sales taxes, and converting currency rates.
-2. **Payment Chasing & Awkward Collections**: Uncomfortable follow-ups with overdue clients, resulting in strained client relationships or delayed cash flow.
-3. **The Danger of Autonomous "AI Agents"**: Generative AI promises automation, but autonomous AI agents that send financial documents or trigger payment requests without human review represent an unacceptable business liability. Hallucinated totals, wrong recipient addresses, or premature dunning emails can destroy client trust.
+Independent freelancers, consultants, and small service businesses lose hours each week to manual invoice drafting, fractional tax calculations, awkward overdue payment follow-ups, and fragmented payment reconciliation. At the same time, autonomous AI agents that send invoices or trigger payment requests without human review create unacceptable financial and reputational risk.
 
-### The Solution: InvoicePilot
-InvoicePilot bridges generative AI and secure enterprise payments with an uncompromising principle: **AI prepares; the Human authorizes; PayPal transacts.**
+**InvoicePilot** solves this with a strict architectural invariant: **AI prepares; the Human authorizes; PayPal Sandbox transacts.**
 
-* **Grounded AI Preparation**: Google Gemini drafts itemized invoices and tone-aware reminders using strict structured schemas. It resolves client names only against stored profiles—it cannot invent phantom clients or hallucinate totals.
-* **The Human Approval Gate**: A server-enforced state machine (`DRAFTED` &rarr; `PENDING_APPROVAL` &rarr; `APPROVED` &rarr; `EXECUTING` &rarr; `EXECUTED`). Consequential actions require explicit human review via a digital Paper Action Authorization Slip before any call reaches PayPal.
-* **Official PayPal Invoicing v2 Sandbox**: Direct REST API integration for creating drafts, retrieving official hosted buyer payment links, and processing signature-verified webhooks.
-* **Production-Grade Craft**: High-contrast, responsive Impeccable design system, timing-safe scrypt user authentication, full client-side PDF downloads, and verified Supabase PostgreSQL cloud persistence.
+- **Target Hosting**: Vercel (`https://invoicepilot-beryl.vercel.app`)
+- **Cloud Database**: Supabase PostgreSQL (`pg.Pool` via transaction pooler)
+- **Local Development Database**: Built-in Node.js SQLite (`node:sqlite` / `DatabaseSync`)
+- **Payment Provider**: PayPal Invoicing v2 REST API (Sandbox Mode & Isolated Mock Mode)
+- **AI Assistant**: Google Gemini (`gemini-2.5-flash`) with deterministic parser and conventional form fallbacks
 
 ---
 
-## 2. Visual Walkthrough & Product Gallery
+## 2. Verified Product Features
 
-| Screen | Verified Capability | Screenshot |
+| Capability | Implementation & Verification |
+| :--- | :--- |
+| **Authentication & Session Isolation** | `crypto.scryptSync` password hashing, timing-safe verification, SHA-256 hashed session tokens in `sessions`, `HttpOnly; SameSite=Lax; Secure` cookies, and strict per-owner IDOR protection on every query. |
+| **4-Step Onboarding & Demo Workspace** | Guided workspace setup (business profile, currency/cap defaults, first client, sandbox check) plus an isolated synthetic demo tenant (`usr_demo_tenant_01`) that never touches real user accounts. |
+| **Client & Invoice CRUD** | Full client directory, multi-line-item invoice drafting, reusable line-item templates (`/api/templates`), integer minor-unit math (`subtotalMinor + taxMinor = totalMinor`), and ISO calendar date validation. |
+| **Human Approval Gate State Machine** | Server-enforced state machine (`DRAFTED -> PENDING_APPROVAL -> APPROVED -> EXECUTING -> EXECUTED`, plus `REJECTED`, `EXPIRED`, `FAILED`, `CANCELLED`). Generates a cryptographic `payloadHash` on the Approval Slip and blocks any unapproved or stale execution. |
+| **Constrained Gemini AI Assistant** | Natural-language invoice drafting (`/api/agent/chat`), stored-client resolution (never invents clients), prompt-injection sanitization, and automatic fallback when `GEMINI_API_KEY` is unconfigured or unreachable. |
+| **PayPal Sandbox Invoicing v2** | OAuth 2.0 client credentials exchange, draft creation (`POST /v2/invoicing/invoices`), send dispatch (`POST /v2/invoicing/invoices/{id}/send`), status refresh (`GET /v2/invoicing/invoices/{id}`), and timeout reconciliation. |
+| **Webhook Signature Verification** | Verifies `paypal-transmission-*` headers against PayPal's `/v1/notifications/verify-webhook-signature` endpoint (`PAYPAL_WEBHOOK_ID`), deduplicates replays via `webhook_events`, and maps `PAID`, `CANCELLED`, `REFUNDED`, and `SENT`. |
+| **Client-Aware Reminders** | Generates overdue payment reminders (`polite`, `firm`, `final` tones) grounded in client history, subject to the human approval state machine and scheduled delivery processing (`/api/reminders/process-scheduled`). |
+| **Grounded Financial Insights & PDF Export** | Aging buckets, collection rate, client reliability metrics (`/api/insights`), partial payment recording, operational completion tracking, and server-generated PDF invoice downloads (`/api/invoices/:id/pdf`). |
+
+---
+
+## 3. Technology Stack
+
+| Layer | Technology | Role |
 | :--- | :--- | :--- |
-| **Landing & Auth** | Dedicated sign-in and account registration with live password validation and timing-safe encrypted sessions. | ![Landing Page](docs/assets/screenshots/01-landing-page.png) |
-| **Workspace Overview** | Clean, uncluttered dashboard welcoming fresh accounts with actionable zero-state quick links. | ![Workspace Overview](docs/assets/screenshots/03-overview-dashboard.png) |
-| **Client Management** | Client profiles with currency defaults, billing preferences, and historical payment reliability tracking. | ![Client Management](docs/assets/screenshots/04-client-management.png) |
-| **Conventional Invoice Drafting** | Real-time multi-item draft builder with exact integer minor-unit math and calendar date validations. | ![Invoice Creation](docs/assets/screenshots/05-invoice-draft-calculations.png) |
-| **Invoice Details & PDF** | Official downloadable PDF copy generated locally via secure header-authenticated API routes. | ![Invoice Details & PDF](docs/assets/screenshots/06-invoice-details-pdf.png) |
-| **The Human Approval Gate** | Authoritative Action Slip highlighting total amounts, recipient email, safety cap warnings, and execution consequences. | ![Approval Slip](docs/assets/screenshots/07-approval-slip-gate.png) |
-| **Constrained Gemini AI** | Natural language invoice assistant converting conversational prompts into validated drafts with form fallback. | ![Gemini AI Assistant](docs/assets/screenshots/08-ai-gemini-assistant.png) |
-| **Client-Aware Reminders** | Context-adaptive reminder generator offering Polite, Firm, or Final Notice tone based on payment history. | ![Client-Aware Reminders](docs/assets/screenshots/09-client-aware-reminders.png) |
-| **PayPal Sandbox Settings** | Transparent provider status indicator, connection diagnostics, and safety limits configuration. | ![PayPal Settings](docs/assets/screenshots/11-paypal-sandbox-settings.png) |
-| **Audit Trail & Activity Log** | Immutable append-only audit trail logging state transitions, provider IDs, and webhook receipts. | ![Audit Trail](docs/assets/screenshots/10-audit-trail-activity.png) |
-| **Operational Completion** | Capability to mark deliverables and operational work as fulfilled without modifying payment status. | ![Operational Completion](docs/assets/screenshots/14-operational-work-completion.png) |
-| **Mobile Responsive UX** | Seamless, zero-overflow experience tested across 360px and 390px mobile viewports with off-canvas navigation. | ![Mobile Responsive](docs/assets/screenshots/12-mobile-responsive-dashboard.png) |
+| **Frontend** | React 19, TypeScript 5.7, Vite 6 | Single-page application compiled to `dist/client` |
+| **Design System** | CSS Custom Properties (Impeccable UI) | Responsive layout (`360px`–`1440px`), dark/light theme, accessible forms |
+| **Backend API** | Node.js 22 / 24, Express 4.21, Zod 4 | REST API, validation, approval state machine, PDF generation |
+| **Serverless Runtime** | Vercel Functions (`api/index.ts`) | Serverless Express entry point with `vercel.json` routing |
+| **Production Database** | Supabase PostgreSQL (`pg` 8.23) | Cloud relational persistence with `AsyncLocalStorage` transactions |
+| **Local Database** | `node:sqlite` (`DatabaseSync`) | Zero-configuration local development and unit/E2E testing |
+| **Payments** | PayPal Invoicing v2 REST API (Sandbox) | Draft creation, invoice dispatch, status sync, webhook verification |
+| **AI Engine** | Google Gemini REST API (`gemini-2.5-flash`) | Structured invoice & reminder drafting with deterministic fallback |
+| **Testing** | Vitest 4.1, Supertest 7, Playwright 1.50 | 135 unit/integration tests + 36 browser E2E tests |
 
 ---
 
-## 3. Hackathon Judging Criteria — Evidence Map
-
-| Official Criterion | How InvoicePilot Delivers | Verifiable Code / Evidence |
-| :--- | :--- | :--- |
-| **A. Technological Implementation** | Complete full-stack architecture: React 19 SPA, Express on Netlify Functions, Supabase PostgreSQL pooler with TLS enforcement, PayPal Invoicing v2 REST integration, Google Gemini structured output, and strict owner authorization. | • [`src/server/paypal/paypalClient.ts`](src/server/paypal/paypalClient.ts)<br>• [`src/server/ai/geminiClient.ts`](src/server/ai/geminiClient.ts)<br>• [`src/server/db/asyncRepository.ts`](src/server/db/asyncRepository.ts)<br>• 128 Vitest + 36 Playwright tests passing |
-| **B. Design & User Experience** | Built on PBakaus's **Impeccable** design system: High-contrast typography (`Newsreader` serif + `Hanken Grotesk`), paper preview document aesthetics, responsive off-canvas mobile navigation, keyboard accessibility, dark/light theme toggle, and zero horizontal overflow. | • [`src/client/App.tsx`](src/client/App.tsx)<br>• [`src/client/components/InvoiceDetailView.tsx`](src/client/components/InvoiceDetailView.tsx)<br>• [`docs/assets/screenshots/`](docs/assets/screenshots/) |
-| **C. Potential Impact** | Solves critical cash-flow and collection delays for 70M+ global freelancers. Protects independent contractors from awkward conversations through data-grounded tone reminders, prevents costly billing mistakes, and automates payment reconciliation via PayPal. | • [`src/server/domain/reminders.ts`](src/server/domain/reminders.ts)<br>• [`src/server/domain/calculations.ts`](src/server/domain/calculations.ts)<br>• [`tests/unit/stage11Reminders.test.ts`](tests/unit/stage11Reminders.test.ts) |
-| **D. Innovation / Idea** | **The Authoritative Human Approval Gate**: Instead of dangerous autonomous agents that hallucinate or execute actions behind the user's back, InvoicePilot formalizes AI tools as *proposals*. The server physically blocks PayPal transmission until the human reviews and signs the digital slip. | • [`src/server/domain/approvalStateMachine.ts`](src/server/domain/approvalStateMachine.ts)<br>• [`src/client/components/ApprovalSlip.tsx`](src/client/components/ApprovalSlip.tsx)<br>• [`tests/unit/stage06Approval.test.ts`](tests/unit/stage06Approval.test.ts) |
-| **E. Presentation & Polish** | Transparent product readiness: Comprehensive documentation, 170-second demo script, live Netlify site with health monitoring, 100% reproducible test suites, and clean open-source MIT repository. | • [`docs/HACKATHON_SUBMISSION.md`](docs/HACKATHON_SUBMISSION.md)<br>• Live Netlify Health API<br>• Fully scripted 3-minute walkthrough |
-
----
-
-## 4. System Architecture
+## 4. Architecture Overview
 
 ```mermaid
 flowchart TD
-    subgraph Client["Frontend Client (React 19 + TypeScript)"]
-        UI["Impeccable UI Shell"]
-        AuthView["Auth & Registration"]
-        DocPreview["Paper Invoice Preview"]
-        SlipModal["Human Approval Slip Modal"]
-        PDFDownloader["Client-Side PDF Downloader"]
+    subgraph Browser["Browser Client (React 19 + Vite SPA)"]
+        UI["Workspace UI & Conventional Forms"]
+        Chat["AI Assistant Panel"]
+        Slip["Human Approval Slip Modal"]
     end
 
-    subgraph ServerlessBackend["Netlify Serverless Functions (Node.js 22 LTS)"]
-        Router["Express API Router"]
-        AuthMiddleware["scrypt Session Auth & IDOR Guard"]
-        StateMachine["Approval State Machine Guard"]
-        CalcEngine["Integer Minor-Unit Math Engine"]
-        GeminiAdapter["Gemini Structured Outputs Adapter"]
-        PayPalAdapter["PayPal REST Invoicing v2 Client"]
+    subgraph Vercel["Vercel Platform"]
+        CDN["Static CDN (dist/client)"]
+        Func["Serverless Function (api/index.ts -> Express)"]
     end
 
-    subgraph DataStore["Cloud Persistence (Supabase)"]
-        PostgresPool["PostgreSQL Connection Pool (pg.Pool)"]
-        Tables[("Users, Sessions, Clients, Invoices, Actions, Activity")]
+    subgraph Core["Application Server Boundaries (src/server)"]
+        Auth["Session Auth, Rate Limiter & Owner Guard"]
+        Gate["Approval Slip State Machine"]
+        Repo["Repository Layer (Async PG / Sync SQLite)"]
+        Agent["GeminiInvoiceAgent + Deterministic Fallback"]
+        PPAdapter["SandboxPayPalAdapter / MockPayPalAdapter"]
     end
 
-    subgraph ExternalServices["External Providers"]
-        GeminiAPI["Google Gemini 2.5 Flash API"]
-        PayPalSandbox["PayPal Invoicing v2 Sandbox REST API"]
+    subgraph External["External Cloud Services"]
+        Supabase[("Supabase PostgreSQL")]
+        PayPal["PayPal Sandbox REST API (api-m.sandbox.paypal.com)"]
+        Gemini["Google Gemini API"]
     end
 
-    UI -->|HTTP / JSON + Bearer Token| Router
-    UI -->|"HTTP / JSON + Bearer Token"| Router
-    Router --> AuthMiddleware
-    AuthMiddleware --> StateMachine
-    StateMachine --> CalcEngine
+    Browser -->|Static Assets| CDN
+    UI -->|/api/* JSON + Cookie/Bearer| Func
+    Chat -->|/api/agent/chat| Func
+    Slip -->|/api/actions/:id/approve & execute| Func
+    Func --> Auth --> Gate
+    Gate --> Repo --> Supabase
+    Gate -.->|Proposal Only| Agent --> Gemini
+    Gate ==>|Approved Action Only| PPAdapter --> PayPal
+    PayPal -.->|POST /api/webhooks/paypal| Func
+```
 
-    CalcEngine -->|Query / Mutation| PostgresPool
-    CalcEngine -->|"Query / Mutation"| PostgresPool
-    PostgresPool --> Tables
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed component boundaries and sequence diagrams.
 
-    StateMachine -.->|Draft Structured Invoice| GeminiAdapter
-    GeminiAdapter -->|JSON Schema Prompt| GeminiAPI
-    StateMachine -.->|"Draft Structured Invoice"| GeminiAdapter
-    GeminiAdapter -->|"JSON Schema Prompt"| GeminiAPI
+---
 
-    StateMachine ==>|Execute Approved Slip Only| PayPalAdapter
-    PayPalAdapter -->|OAuth 2.0 Token + Invoicing v2| PayPalSandbox
-    PayPalSandbox -.->|Webhooks (SHA256withRSA)| Router
-    StateMachine ==>|"Execute Approved Slip Only"| PayPalAdapter
-    PayPalAdapter -->|"OAuth 2.0 Token + Invoicing v2"| PayPalSandbox
-    PayPalSandbox -.->|"Webhooks with SHA256 Signature"| Router
+## 5. Directory Structure
+
+```text
+InvoicePilot/
+├── api/
+│   └── index.ts                  # Vercel Node.js serverless function entry point
+├── docs/                         # Architecture, deployment, API, security & QA specifications
+│   ├── ARCHITECTURE.md
+│   ├── DEPLOYMENT.md
+│   ├── ENVIRONMENT_VARIABLES.md
+│   └── LOCAL_DEVELOPMENT.md
+├── migrations/                   # Idempotent Supabase PostgreSQL SQL migrations
+│   ├── 001_initial_supabase_schema.sql
+│   ├── 002_invoice_completed_flag.sql
+│   └── 003_add_refunded_provider_status.sql
+├── netlify/
+│   └── functions/api.ts          # Historical Netlify serverless wrapper (preserved)
+├── scripts/                      # Standalone CLI verification utilities
+│   ├── verifyGeminiCli.ts
+│   └── verifyWebhookHandling.ts
+├── src/
+│   ├── client/                   # React 19 frontend SPA
+│   │   ├── App.tsx
+│   │   ├── main.tsx
+│   │   └── styles.css
+│   └── server/                   # Express backend & domain logic
+│       ├── agent/geminiAgent.ts  # Gemini AI integration & deterministic fallback
+│       ├── db/                   # SQLite & PostgreSQL repositories, schema, migrations
+│       ├── paypal/               # PayPal Sandbox & Mock adapters + CLI verifiers
+│       ├── pdf/                  # Server-side PDF invoice generator
+│       ├── app.ts                # Express API routes, security headers, CORS, rate limits
+│       ├── config.ts             # Validated environment configuration loader
+│       ├── dev.ts                # Local development server (Vite middleware + Express)
+│       └── index.ts              # Standalone production Node server entry point
+├── tests/
+│   ├── e2e/                      # 13 Playwright E2E spec files (Desktop & Mobile)
+│   └── unit/                     # 20 Vitest unit & integration test suites (135 tests)
+├── .env.example                  # Safe environment variable template (no secrets)
+├── package.json                  # Scripts and dependencies
+├── playwright.config.ts          # Playwright E2E configuration
+├── tsconfig.json                 # TypeScript configuration
+├── tsconfig.server.json          # Server build TypeScript configuration
+├── vercel.json                   # Vercel build, rewrites, function & security headers config
+└── vite.config.ts                # Vite frontend bundling configuration
 ```
 
 ---
 
-## 5. Core Architectural Innovations
+## 6. Prerequisites
 
-### 1. The Human Approval Gate State Machine
-Consequential actions (such as dispatching an invoice to PayPal or delivering an overdue reminder) require explicit authorization. The server rejects any execution attempt unless an active approval slip has transitioned through the formal state machine:
-
-```mermaid
-stateDiagram-v2
-    [*] --> DRAFTED: User or Gemini Agent creates draft
-    DRAFTED --> PENDING_APPROVAL: Propose Action (Generates Approval Slip)
-    PENDING_APPROVAL --> APPROVED: Human reviews & signs slip
-    PENDING_APPROVAL --> REJECTED: Human discards or edits draft
-    APPROVED --> EXECUTING: Trigger Dispatch Request
-    APPROVED --> STALE_EXPIRED: Payload modified or timeout elapses
-    EXECUTING --> EXECUTED: PayPal Sandbox confirms transmission
-    EXECUTING --> FAILED: Provider error (Clean recovery & audit logged)
-    EXECUTED --> [*]
-    REJECTED --> [*]
-    STALE_EXPIRED --> DRAFTED: Re-draft required
-```
-
-### 2. Grounded AI Integration (Google Gemini 2.5 Flash)
-* **Zero Hallucinated Clients**: Gemini functions resolve client names strictly against stored `clients` in the active user's workspace.
-* **Strict Schema Validation**: Tool outputs are validated against Zod schemas. If the model attempts to generate negative amounts, invalid currencies, or dates where `dueDate < issueDate`, the server rejects the response.
-* **Always-Available Fallback**: If the Gemini API is unreachable, quota is exceeded, or credentials are unconfigured, the UI seamlessly preserves the full conventional invoice creation form.
-
-### 3. Official PayPal Sandbox REST Workflow
-* **OAuth 2.0 Client Credentials**: Automated token caching and renewal (`/v1/oauth2/token`).
-* **Invoicing v2 Endpoints**: Creates drafts via `POST /v2/invoicing/invoices`, executes sends via `POST /v2/invoicing/invoices/{id}/send`, and synchronizes status via `GET /v2/invoicing/invoices/{id}`.
-* **Reconciliation on Timeout**: If an ambiguous network timeout occurs during dispatch, InvoicePilot queries PayPal before retrying to prevent duplicate customer invoices.
-* **Webhook Signature Verification**: Verifies incoming PayPal webhook signatures (`SHA256withRSA`) before processing status updates to `PAID` or `CANCELLED`.
+- **Operating System**: Windows 11 (PowerShell 5.1 / 7+), macOS, or Linux
+- **Node.js**: `v22.13.0+` or `v24.x` (verified on `v24.22.1` — includes built-in `node:sqlite` for local development)
+- **npm**: `v10.0.0+`
+- **Optional External Accounts**:
+  - **Supabase**: PostgreSQL database for cloud/production persistence
+  - **PayPal Developer Account**: Sandbox REST API app credentials (`Client ID`, `Secret`, `Webhook ID`)
+  - **Google AI Studio**: `GEMINI_API_KEY` for live Gemini model inference (optional)
 
 ---
 
-## 6. Technology Stack
+## 7. Local Windows / PowerShell Setup
 
-| Layer | Technologies | Purpose |
-| :--- | :--- | :--- |
-| **Frontend** | React 19, TypeScript, Vite 6 | Fast, accessible single-page application with zero heavy UI library bloat. |
-| **Styling & Design** | CSS Design Tokens, Impeccable System | Responsive layout (360px–1440px), high contrast, dark/light themes, serif document typography. |
-| **Backend** | Node.js 22 LTS, Express 4.21, `serverless-http` | RESTful API running locally or deployed as Netlify Serverless Functions. |
-| **Cloud Database** | Supabase PostgreSQL (`pg` pool, TLS) | Persistent cloud storage with foreign-key cascade safety and strict owner isolation. |
-| **Local Database** | `node:sqlite` (DatabaseSync) | Zero-setup, instant in-memory or on-disk transactional database for development and tests. |
-| **AI Engine** | Google Gemini API (`gemini-2.5-flash`) | Structured function calling with server-side validation. |
-| **Payments** | PayPal Invoicing v2 REST API (Sandbox) | Official PayPal business invoicing, payment status refresh, and webhooks. |
-| **Testing** | Vitest 3, Playwright 1.50 | 128 unit/integration tests and 36 end-to-end tests across Chromium and Mobile Edge. |
+Open PowerShell in your workspace directory and run:
 
----
+```powershell
+# 1. Verify Node.js version (22.13+ or 24.x)
+node -v
+npm -v
 
-## 7. Quickstart & Local Setup
-
-### Prerequisites
-* **Node.js**: v22.13.0 LTS or higher (`node -v`)
-* **npm**: v10.0.0 or higher (`npm -v`)
-
-### 1. Clone & Install
-```bash
-git clone https://github.com/KhaleelxRahman/InvoicePilot.git
-cd InvoicePilot
+# 2. Install dependencies
 npm install
-```
 
-### 2. Configure Environment Variables
-Create a local `.env` file from the template:
-```bash
-cp .env.example .env
-```
-Populate your environment variables (placeholders only; never commit secrets):
-```env
-# Server Configuration
-PORT=3000
-NODE_ENV=development
+# 3. Copy the environment template to .env (if .env does not already exist)
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 
-# Database Configuration (Optional: SQLite used by default if blank)
-DATABASE_URL=postgresql://postgres:[PASSWORD]@db.[REF].supabase.co:5432/postgres
-
-# PayPal Developer Sandbox (Optional: Mock mode active if blank)
-PAYPAL_MODE=sandbox
-PAYPAL_CLIENT_ID=your_paypal_sandbox_client_id
-PAYPAL_CLIENT_SECRET=your_paypal_sandbox_client_secret
-
-# Google Gemini API (Optional: Conventional form fallback active if blank)
-GEMINI_API_KEY=your_gemini_api_key
-GEMINI_MODEL=gemini-2.5-flash
-```
-
-### 3. Initialize Database Migrations
-```bash
+# 4. Initialize and migrate the local SQLite database
 npm run db:migrate
-```
 
-### 4. Start Local Development Server
-```bash
+# 5. Start the local full-stack development server
 npm run dev
 ```
-Open **[http://localhost:3000](http://localhost:3000)** in your browser. Register a new account or log in with your credentials to explore the workspace.
+
+The development server starts on **`http://localhost:3000`** with hot reload for the React client and Express API routes. See [docs/LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md) for full Windows/PowerShell tips.
 
 ---
 
-## 8. Verification & Testing Evidence
+## 8. Installation & Development Commands
 
-InvoicePilot maintains automated test coverage across all domain rules, state machine transitions, and UI workflows:
+All scripts defined in [package.json](package.json):
 
-```bash
-# 1. Typecheck TypeScript across client and server
-npm run typecheck
+| Command | Description |
+| :--- | :--- |
+| `npm run dev` | Starts the unified Express + Vite development server (`tsx src/server/dev.ts`) on `http://localhost:3000` |
+| `npm run build` | Builds the React SPA (`dist/client`) and compiles server TypeScript (`dist/server`) |
+| `npm start` | Runs the compiled standalone Node production server (`node dist/server/index.js`) |
+| `npm run typecheck` | Runs `tsc --noEmit` across the codebase |
+| `npm test` | Runs the complete Vitest unit and integration test suite (`vitest run`) |
+| `npm run test:e2e` | Runs the Playwright end-to-end browser test suite (`playwright test`) |
+| `npm run db:migrate` | Runs local SQLite schema migrations (`tsx src/server/db/migrateAndSeedCli.ts migrate`) |
+| `npm run db:seed:demo` | Resets and seeds the isolated local synthetic demo tenant (`usr_demo_tenant_01`) |
+| `npm run db:migrate:supabase` | Applies idempotent PostgreSQL migrations (`001`–`003`) to `DATABASE_URL` |
+| `npm run paypal:adapter:verify` | Verifies Mock and Sandbox PayPal adapter invariants via CLI |
+| `npm run paypal:sandbox:verify` | Verifies live PayPal Sandbox OAuth and draft invoice creation via CLI |
 
-# 2. Run unit and integration tests (128 passing tests)
-npm test
+---
 
-# 3. Production client & server build
-npm run build
+## 9. Environment Variables Reference
 
-# 4. Run end-to-end Playwright tests (36 passing tests)
-npx playwright test
+The server loads configuration exclusively through [`loadAppConfig()`](src/server/config.ts) and rate-limit configuration in [`createApiApp()`](src/server/app.ts).
 
-# 5. Run visible headed Playwright tests (Watch browser live on screen)
-npx playwright test tests/e2e/release-audit.spec.ts --headed
+| Variable | Required? | Secret? | Default | Description |
+| :--- | :---: | :---: | :--- | :--- |
+| `APP_ENV` | Yes (Prod) | No | `development` | `development` \| `test` \| `production`. Enables `Secure` cookies, HSTS, and strict CORS in `production`. |
+| `APP_BASE_URL` | Yes (Prod) | No | `http://localhost:3000` | Canonical application origin (e.g. `https://invoicepilot-beryl.vercel.app`). |
+| `DATABASE_URL` | Yes (Prod) | **Yes** | `data/invoicepilot.db` *(local only)* | Supabase PostgreSQL URL (`postgresql://...`) in production; leave empty locally to use SQLite. |
+| `PAYPAL_MODE` | Yes | No | `sandbox` | `sandbox` or `mock`. Live money mode is rejected at startup. |
+| `PAYPAL_CLIENT_ID` | For Sandbox | **Yes** | `""` | PayPal Sandbox REST API Client ID. |
+| `PAYPAL_CLIENT_SECRET` | For Sandbox | **Yes** | `""` | PayPal Sandbox REST API Client Secret. |
+| `PAYPAL_WEBHOOK_ID` | For Webhooks | **Yes** | `""` | PayPal Sandbox Webhook ID for `/api/webhooks/paypal` signature verification. |
+| `GEMINI_API_KEY` | Optional | **Yes** | `""` | Google Gemini API key. Uses deterministic fallback when empty. |
+| `GEMINI_MODEL` | Optional | No | `gemini-2.5-flash` | Gemini model name. |
+| `GEMINI_TIMEOUT_MS` | Optional | No | `15000` | Timeout in ms for Gemini requests (`>= 100`). |
+| `PAYPAL_TIMEOUT_MS` | Optional | No | `15000` | Timeout in ms for PayPal Sandbox HTTP requests (`>= 100`). |
+| `PAYPAL_SANDBOX_INVOICER_EMAIL` | Optional | No | `undefined` | Optional Sandbox merchant invoicer email override. |
+| `PAYPAL_SANDBOX_RECIPIENT_EMAIL` | Optional | No | `sb-buyer-invoicepilot@personal.example.com` | Default recipient email for CLI sandbox checks. |
+| `AUTH_PROVIDER` | Optional | No | `session` | Authentication strategy label. |
+| `PORT` | Optional | No | `3000` | HTTP port for local/standalone server. |
+| `RATE_LIMIT_LOGIN_MAX` | Optional | No | `20` (`100` in test) | Max requests per minute per IP on `/api/auth/login`. |
+| `RATE_LIMIT_REGISTER_MAX` | Optional | No | `20` (`100` in test) | Max requests per minute per IP on `/api/auth/register`. |
+| `RATE_LIMIT_AGENT_MAX` | Optional | No | `30` (`100` in test) | Max requests per minute per IP on `/api/agent/chat`. |
+
+See [docs/ENVIRONMENT_VARIABLES.md](docs/ENVIRONMENT_VARIABLES.md) for scope-by-scope (`Production`, `Preview`, `Development`, and local `.env`) guidance.
+
+---
+
+## 10. SQLite Local Development
+
+- When `DATABASE_URL` is unset in local development (`APP_ENV=development`), InvoicePilot automatically uses Node's built-in `node:sqlite` (`DatabaseSync`) with WAL mode enabled at `data/invoicepilot.db` (or `data/invoicepilot.test.db` when `APP_ENV=test`).
+- **Serverless Safeguard**: When `process.env.VERCEL` or `process.env.NETLIFY` is present, local SQLite file fallback is strictly disabled (`defaultDbPath = ''`). If `DATABASE_URL` is missing in serverless production, database routes return `503 DATABASE_CONFIGURATION_REQUIRED` instead of attempting filesystem writes.
+
+---
+
+## 11. Supabase Production Database Setup
+
+1. Create a Supabase project and copy the **Transaction Pooler** connection string (Port `6543`) from **Project Settings → Database → Connection string → URI**.
+2. Configure `DATABASE_URL` in Vercel Environment Variables (`Production` and, if desired, `Preview`).
+3. **Connection Pooling & TLS**: [`PostgresPoolAdapter`](src/server/db/postgresPoolAdapter.ts) configures `pg.Pool` (`max: 10`, `idleTimeoutMillis: 30000`, `connectionTimeoutMillis: 5000`) with `AsyncLocalStorage` transaction isolation and serverless-compatible TLS (`buildPostgresSslConfig`). Custom CA certificates can also be supplied via `SUPABASE_SSL_CA` or `DATABASE_SSL_CA`.
+
+---
+
+## 12. Database Migration Safety
+
+All PostgreSQL migrations in [`migrations/`](migrations/) are non-destructive and idempotent:
+- [`001_initial_supabase_schema.sql`](migrations/001_initial_supabase_schema.sql): Uses `CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`, and `ON CONFLICT DO NOTHING` for the synthetic demo tenant seed.
+- [`002_invoice_completed_flag.sql`](migrations/002_invoice_completed_flag.sql): Uses `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS`.
+- [`003_add_refunded_provider_status.sql`](migrations/003_add_refunded_provider_status.sql): Safely updates `invoices_provider_status_check` to include `'REFUNDED'` without modifying table rows.
+
+To apply migrations to a configured `DATABASE_URL`:
+```powershell
+npm run db:migrate:supabase
 ```
 
-### Verified Test Summary
-* **Unit & Integration (`vitest`)**: **128 / 128 Passed** across 19 suites:
-  * Security regressions & IDOR prevention: 7/7
-  * Approval slip & state machine: 6/6
-  * PayPal Sandbox end-to-end: 5/5
-  * Client-aware reminders: 6/6
-  * Grounded insights & math calculations: 14/14
-  * Supabase PostgreSQL engine: 10/10
-  * Invoice PDF generator: 4/4
-* **End-to-End (`playwright`)**: **36 / 36 Passed** across `desktop-chromium` (1280x800) and `mobile-360` (360x780).
-* **Responsive Audits**: Verified on `1440x900` desktop and `390x844` mobile with **0 horizontal overflow**.
+---
+
+## 13. PayPal Sandbox Configuration
+
+1. Log in to the [PayPal Developer Dashboard](https://developer.paypal.com/dashboard/applications/sandbox) and create or select a **Sandbox REST API App**.
+2. Set `PAYPAL_MODE=sandbox`, `PAYPAL_CLIENT_ID`, and `PAYPAL_CLIENT_SECRET` in your environment.
+3. Verify OAuth 2.0 connectivity and draft creation safely from PowerShell:
+   ```powershell
+   npm run paypal:sandbox:verify
+   ```
+4. **Safety Invariant**: Live PayPal mode is rejected by `PayPalModeSchema` (`z.enum(['sandbox', 'mock'])`). Invoices are never dispatched to PayPal without an `APPROVED` slip in `pending_actions`.
 
 ---
 
-## 9. Production Deployment
+## 14. PayPal Webhook Setup
 
-* **Hosting Target**: **Netlify**
-* **Deployment Method**: Continuous Deployment connected to GitHub `main` branch.
-* **Serverless Adapter**: Express app wrapped via `serverless-http` under `netlify/functions/api.ts`.
-* **Database Connection**: Supabase pooled connection with SSL strict TLS verification.
-* **Production Health Check**:
-  ```bash
-  curl -s https://inquisitive-biscochitos-83e042.netlify.app/api/health
+1. In your PayPal Developer Sandbox App settings, add a **Webhook** with the listener URL:
+   ```text
+   https://invoicepilot-beryl.vercel.app/api/webhooks/paypal
+   ```
+2. Subscribe to the following Invoicing v2 events supported by [`src/server/app.ts`](src/server/app.ts):
+   - `INVOICING.INVOICE.PAID`
+   - `INVOICING.INVOICE.CANCELLED`
+   - `INVOICING.INVOICE.REFUNDED`
+   - `INVOICING.INVOICE.SENT`
+   - `INVOICING.INVOICE.CREATED`
+   - `INVOICING.INVOICE.UPDATED`
+   - `INVOICING.INVOICE.SCHEDULED`
+3. Copy the generated **Webhook ID** from PayPal and set it as `PAYPAL_WEBHOOK_ID` in Vercel.
+4. **Verification Behavior**: Every inbound `POST /api/webhooks/paypal` request requires `paypal-transmission-id`, `paypal-transmission-time`, `paypal-transmission-sig`, `paypal-cert-url`, `paypal-auth-algo`, and `PAYPAL_WEBHOOK_ID`. Unverified payloads are rejected with `400 WEBHOOK_SIGNATURE_INVALID` and recorded as `REJECTED` / `IGNORED` in `webhook_events`.
+5. Run the standalone webhook verification script locally at any time:
+   ```powershell
+   npx tsx scripts/verifyWebhookHandling.ts
+   ```
+
+---
+
+## 15. Gemini AI Configuration & Fallback
+
+- **Configured Mode**: When `GEMINI_API_KEY` is provided, [`GeminiInvoiceAgent`](src/server/agent/geminiAgent.ts) calls `gemini-2.5-flash` (`GEMINI_MODEL`) with a 15-second timeout (`GEMINI_TIMEOUT_MS`), validates structured outputs with Zod, resolves client names against the authenticated owner's stored clients, and neutralizes prompt-injection patterns in notes.
+- **Unconfigured / Offline Fallback**: `GEMINI_API_KEY` is optional. When omitted or when the API times out or returns a `429`/`5xx` error, InvoicePilot automatically falls back to its built-in deterministic natural-language parser and preserves full conventional invoice and reminder forms.
+- Verify Gemini and fallback behavior locally:
+  ```powershell
+  npx tsx scripts/verifyGeminiCli.ts
   ```
-  Returns:
-  ```json
-  {
-    "status": "ok",
-    "service": "invoicepilot",
-    "paypalMode": "sandbox",
-    "databaseEngine": "postgresql-supabase",
-    "databaseConfigured": true,
-    "schemaVersion": 6,
-    "approvalGateEnforced": true
-  }
-  ```
 
 ---
 
-## 10. Future Roadmap
+## 16. Testing Commands & Verification
 
-* **Live PayPal Production Mode**: Transition from Sandbox credentials to Live PayPal merchant onboarding once certified for production processing.
-* **Multi-Currency FX Lock**: Automatic foreign currency lock-in at invoice creation date via ECB feeds.
-* **WhatsApp & SMS Reminders**: Expand reminder delivery channels to include verified business WhatsApp templates.
-* **Recurring Subscriptions**: Recurring retainer scheduling with automatic PayPal subscription billing.
+Run the full quality gate locally in PowerShell:
+
+```powershell
+# 1. TypeScript static typecheck
+npm run typecheck
+
+# 2. Unit & integration test suite (20 test files, 135 tests)
+npm test
+
+# 3. Production client + server build
+npm run build
+
+# 4. Playwright end-to-end suite (13 spec files, 36 tests across Desktop & Mobile)
+npm run test:e2e
+```
 
 ---
 
-## 11. License
+## 17. Production Build
 
-This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
+`npm run build` executes two steps:
+1. `vite build`: Bundles the React 19 SPA into `dist/client/` (`dist/client/index.html` and hashed CSS/JS assets).
+2. `tsc -p tsconfig.server.json`: Compiles the NodeNext server TypeScript files from `src/server/` into `dist/server/`.
 
 ---
 
-*InvoicePilot — Crafted for the PayPal AI Hackathon (2026).*
+## 18. Vercel Deployment
+
+InvoicePilot is configured for Vercel via [`api/index.ts`](api/index.ts) and [`vercel.json`](vercel.json):
+
+```powershell
+# 1. Verify Vercel CLI authentication & linked project
+npx vercel whoami
+npx vercel env ls
+
+# 2. Deploy to Preview
+npx vercel
+
+# 3. Deploy to Production (after preflight verification)
+npx vercel --prod
+```
+
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the complete Vercel deployment and rollback runbook.
+
+---
+
+## 19. Health-Check Verification
+
+After starting the server or deploying to Vercel, query `/api/health`:
+
+```powershell
+Invoke-RestMethod -Uri "https://invoicepilot-beryl.vercel.app/api/health" | ConvertTo-Json
+```
+
+Expected healthy production response:
+```json
+{
+  "status": "ok",
+  "service": "invoicepilot",
+  "stage": "stage-09-auth-onboarding",
+  "environment": "production",
+  "authProvider": "session",
+  "paypalMode": "sandbox",
+  "isMock": false,
+  "modeLabel": "PayPal Sandbox Mode (No Live Money)",
+  "adapterStatusLabel": "PayPal Sandbox Mode (Live Sandbox API — No Real Money)",
+  "sandboxCredentialsConfigured": true,
+  "webhookConfigured": true,
+  "geminiConfigured": false,
+  "geminiModel": "gemini-2.5-flash",
+  "databaseEngine": "postgresql-supabase",
+  "databaseConfigured": true,
+  "schemaVersion": 6,
+  "approvalGateEnforced": true
+}
+```
+
+---
+
+## 20. Troubleshooting
+
+| Symptom / Error | Cause | Resolution |
+| :--- | :--- | :--- |
+| `503 DATABASE_CONFIGURATION_REQUIRED` | `DATABASE_URL` is missing in a serverless environment (`VERCEL=1` or `NETLIFY=true`). | Configure `DATABASE_URL` with your Supabase PostgreSQL URI in Vercel Environment Variables and redeploy. |
+| `401 invalid_client` on PayPal OAuth | `PAYPAL_CLIENT_ID` or `PAYPAL_CLIENT_SECRET` has extra quotes, whitespace, or belongs to a deleted Sandbox app. | Re-copy the exact Client ID and Secret from the PayPal Developer Sandbox dashboard into Vercel and redeploy. |
+| `400 WEBHOOK_SIGNATURE_INVALID` | Missing `PAYPAL_WEBHOOK_ID` or unverified `paypal-transmission-*` headers. | Set `PAYPAL_WEBHOOK_ID` to the ID shown in PayPal Developer Dashboard for `https://invoicepilot-beryl.vercel.app/api/webhooks/paypal`. |
+| `403 Forbidden` on `OPTIONS /api/*` | Request `Origin` header does not match `APP_BASE_URL` or the Vercel deployment URL. | Set `APP_BASE_URL=https://invoicepilot-beryl.vercel.app` in Vercel Production environment variables. |
+| `429 RATE_LIMITED` | Exceeded per-IP rate limit on `/api/auth/login` (20/min), `/api/auth/register` (20/min), or `/api/agent/chat` (30/min). | Wait for the `Retry-After` window to elapse or adjust `RATE_LIMIT_*_MAX` in non-production testing. |
+
+---
+
+## 21. Security Guidelines
+
+- **Zero Client-Side Secrets**: Never prefix `PAYPAL_CLIENT_SECRET`, `DATABASE_URL`, `PAYPAL_WEBHOOK_ID`, or `GEMINI_API_KEY` with `VITE_`. All secrets remain strictly server-side.
+- **Git Secret Hygiene**: `.env`, `.env.*`, `.env.local`, and `.vercel` are ignored via [`.gitignore`](.gitignore). Never commit real credentials.
+- **Defense-in-Depth Headers**: Every response includes `Content-Security-Policy`, `Strict-Transport-Security` (in production), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, and `Permissions-Policy`.
+- **Fail-Closed Authorization**: All `/api/clients`, `/api/invoices`, `/api/actions`, `/api/reminders`, `/api/insights`, `/api/templates`, and `/api/settings` routes require a valid session token and verify `owner_user_id` ownership before reading or mutating records.
+
+---
+
+## 22. Known Limitations & Non-Goals
+
+- **Sandbox Only (MVP Non-Goal)**: Live money processing (`PAYPAL_MODE=live`) is intentionally disabled.
+- **Per-Isolate Serverless Rate Limiting**: `createInMemoryRateLimiter` uses an in-memory `Map` per serverless function instance; it mitigates single-instance bursts and credential stuffing within warm isolates rather than acting as a global distributed WAF.
+- **Scheduled Reminders Trigger**: Due scheduled reminders are dispatched when `POST /api/reminders/process-scheduled` is invoked (via UI or external cron trigger) rather than an always-on background worker process.
+
+---
+
+## 23. Documentation Index & License
+
+- **Architecture & Boundaries**: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- **Vercel Deployment Runbook**: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+- **Environment Variables Guide**: [docs/ENVIRONMENT_VARIABLES.md](docs/ENVIRONMENT_VARIABLES.md)
+- **Local Development Guide**: [docs/LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md)
+- **API Contracts**: [docs/API.md](docs/API.md)
+- **Database Schema**: [docs/DATABASE.md](docs/DATABASE.md)
+- **PayPal Integration**: [docs/PAYPAL_INTEGRATION.md](docs/PAYPAL_INTEGRATION.md)
+- **Security & Auth**: [docs/AUTH_SECURITY.md](docs/AUTH_SECURITY.md)
+
+Licensed under the **MIT License** — see [LICENSE](LICENSE) for details.

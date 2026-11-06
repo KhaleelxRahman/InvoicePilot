@@ -35,6 +35,13 @@ export async function runSupabaseMigration(databaseUrl?: string): Promise<{ succ
       await client.query(sql2);
     }
 
+    const sqlPath3 = path.resolve(process.cwd(), 'migrations/003_add_refunded_provider_status.sql');
+    if (fs.existsSync(sqlPath3)) {
+      console.log('[Supabase Migration] Applying Migration 003 (refunded status constraint)...');
+      const sql3 = fs.readFileSync(sqlPath3, 'utf-8');
+      await client.query(sql3);
+    }
+
     const res = await client.query(`
       SELECT table_name
       FROM information_schema.tables

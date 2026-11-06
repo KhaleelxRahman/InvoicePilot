@@ -57,23 +57,30 @@ export function loadAppConfig(
   const safeGeminiTimeoutMs =
     Number.isFinite(geminiTimeoutRaw) && geminiTimeoutRaw >= 100 ? geminiTimeoutRaw : 15000;
 
-  const isNetlify = Boolean(
+  const isServerless = Boolean(
+    merged.VERCEL ||
     merged.NETLIFY === 'true' ||
     merged.LAMBDA_TASK_ROOT ||
     merged.AWS_LAMBDA_FUNCTION_NAME
   );
 
-  const defaultDbPath = isNetlify
+  const defaultDbPath = isServerless
     ? ''
     : appEnv === 'test'
       ? 'data/invoicepilot.test.db'
       : 'data/invoicepilot.db';
   const databaseUrl = (merged.DATABASE_URL ?? '').trim() || defaultDbPath;
 
+  const fallbackBaseUrl = merged.VERCEL_PROJECT_PRODUCTION_URL
+    ? `https://${merged.VERCEL_PROJECT_PRODUCTION_URL.trim()}`
+    : merged.VERCEL_URL
+      ? `https://${merged.VERCEL_URL.trim()}`
+      : `http://localhost:${safePort}`;
+
   return {
     appEnv,
     port: safePort,
-    appBaseUrl: (merged.APP_BASE_URL ?? `http://localhost:${safePort}`).trim(),
+    appBaseUrl: (merged.APP_BASE_URL ?? fallbackBaseUrl).trim() || fallbackBaseUrl,
     databaseUrl,
     paypalMode: modeResult.data,
     authProvider: (merged.AUTH_PROVIDER ?? 'session').trim() || 'session',

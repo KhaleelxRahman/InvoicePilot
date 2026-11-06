@@ -1127,10 +1127,33 @@ export class AsyncInvoicePilotRepository {
   public async refreshInvoiceProviderStatus(
     ownerUserId: string,
     invoiceId: string,
-    status: ProviderConfirmedStatus
+    statusOrSnapshot:
+      | ProviderConfirmedStatus
+      | {
+          providerMode?: PayPalMode;
+          isMock?: boolean;
+          providerInvoiceId?: string;
+          providerStatus: ProviderConfirmedStatus;
+          recipientViewUrl?: string;
+          invoicerViewUrl?: string;
+          paypalDebugId?: string;
+        },
+    correlationId?: string
   ): Promise<InvoiceRecord> {
     const existing = await this.getInvoiceForOwner(ownerUserId, invoiceId);
-    if (!existing.providerInvoiceId) {
+    const snapshot =
+      typeof statusOrSnapshot === 'string'
+        ? {
+            providerMode: existing.providerMode,
+            isMock: existing.providerMode === 'mock',
+            providerInvoiceId: existing.providerInvoiceId ?? '',
+            providerStatus: statusOrSnapshot
+          }
+        : statusOrSnapshot;
+
+    const status = snapshot.providerStatus;
+    const providerInvoiceId = snapshot.providerInvoiceId || existing.providerInvoiceId;
+    if (!providerInvoiceId) {
       throw new OwnershipOrValidationError(
         'VALIDATION_ERROR',
         'Cannot refresh status on an unsent invoice without providerInvoiceId.'
@@ -1139,14 +1162,57 @@ export class AsyncInvoicePilotRepository {
 
     const now = new Date().toISOString();
     let localStatus = existing.localStatus;
-    if (status === 'PAID') localStatus = 'SENT';
-    if (status === 'CANCELLED') localStatus = 'CANCELLED';
+    if (
+      status === 'SENT' ||
+      status === 'UNPAID' ||
+      status === 'PAID' ||
+      status === 'MARKED_AS_PAID'
+    ) {
+      localStatus = 'SENT';
+    }
+    if (status === 'CANCELLED' || status === 'REFUNDED') {
+      localStatus = 'CANCELLED';
+    }
 
     await this.db
       .prepare(
-        `UPDATE invoices SET provider_status = ?, local_status = ?, last_provider_sync_at = ?, updated_at = ? WHERE id = ? AND owner_user_id = ?`
+        `UPDATE invoices
+         SET provider_status = ?,
+             local_status = ?,
+             provider_recipient_view_url = COALESCE(?, provider_recipient_view_url),
+             provider_invoicer_view_url = COALESCE(?, provider_invoicer_view_url),
+             last_provider_sync_at = ?,
+             updated_at = ?
+         WHERE id = ? AND owner_user_id = ?`
       )
-      .run(status, localStatus, now, now, invoiceId, ownerUserId);
+      .run(
+        status,
+        localStatus,
+        snapshot.recipientViewUrl ?? null,
+        snapshot.invoicerViewUrl ?? null,
+        now,
+        now,
+        invoiceId,
+        ownerUserId
+      );
+
+    await this.appendActivityLog(ownerUserId, {
+      actorType: 'provider',
+      action: 'INVOICE_PROVIDER_STATUS_REFRESHED',
+      entityType: 'invoice',
+      entityId: invoiceId,
+      result: 'INFO',
+      detail: {
+        invoiceNumber: existing.invoiceNumber,
+        providerMode: snapshot.providerMode ?? existing.providerMode,
+        isMock: snapshot.isMock ?? existing.providerMode === 'mock',
+        providerInvoiceId,
+        previousProviderStatus: existing.providerStatus,
+        providerStatus: status,
+        paypalDebugId: snapshot.paypalDebugId
+      },
+      correlationId
+    });
 
     return await this.getInvoiceForOwner(ownerUserId, invoiceId);
   }
@@ -1589,19 +1655,24 @@ export class AsyncInvoicePilotRepository {
     verificationStatus: 'VERIFIED' | 'REJECTED';
     processingStatus: 'PROCESSED' | 'IGNORED' | 'FAILED';
     relatedProviderInvoiceId?: string;
-    payloadJson: string;
-  }): Promise<{ id: string; duplicate: boolean }> {
+    payload?: unknown;
+    payloadJson?: string;
+  }): Promise<{ id: string; duplicate: boolean; deduplicated: boolean }> {
     const existing = await this.db
       .prepare('SELECT id FROM webhook_events WHERE provider_event_id = ?')
       .get(input.providerEventId);
 
     if (existing) {
-      return { id: input.providerEventId, duplicate: true };
+      return { id: input.providerEventId, duplicate: true, deduplicated: true };
     }
 
     const now = new Date().toISOString();
     const id = `wh_${crypto.randomUUID()}`;
-    const payloadHash = crypto.createHash('sha256').update(input.payloadJson).digest('hex');
+    const rawPayload =
+      typeof input.payloadJson === 'string'
+        ? input.payloadJson
+        : JSON.stringify(input.payload ?? {});
+    const payloadHash = crypto.createHash('sha256').update(rawPayload).digest('hex');
 
     await this.db
       .prepare(
@@ -1620,7 +1691,7 @@ export class AsyncInvoicePilotRepository {
         now
       );
 
-    return { id, duplicate: false };
+    return { id, duplicate: false, deduplicated: false };
   }
 
   public async listWebhookEvents(limit = 50): Promise<WebhookEventDetailRecord[]> {

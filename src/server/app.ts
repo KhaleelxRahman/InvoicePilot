@@ -186,6 +186,69 @@ function parseInvoiceItemsInput(
   });
 }
 
+export interface RateLimitOptions {
+  windowMs: number;
+  max: number;
+  message: string;
+  code?: string;
+  keyGenerator?: (req: Request) => string;
+}
+
+export function createInMemoryRateLimiter(options: RateLimitOptions) {
+  const { windowMs, max, message, code = 'RATE_LIMITED' } = options;
+  const requests = new Map<string, { count: number; resetAt: number }>();
+
+  // Prune expired records every 5 minutes
+  const cleanupTimer = setInterval(() => {
+    const now = Date.now();
+    for (const [key, record] of requests.entries()) {
+      if (now > record.resetAt) {
+        requests.delete(key);
+      }
+    }
+  }, 5 * 60 * 1000);
+  if (typeof (cleanupTimer as any).unref === 'function') {
+    (cleanupTimer as any).unref();
+  }
+
+  return (req: Request, res: Response, next: NextFunction) => {
+    const rawIp = req.ip || req.socket?.remoteAddress || 'unknown-client';
+    const key = options.keyGenerator ? options.keyGenerator(req) : rawIp;
+
+    const now = Date.now();
+    let record = requests.get(key);
+
+    if (!record || now > record.resetAt) {
+      record = { count: 1, resetAt: now + windowMs };
+      requests.set(key, record);
+    } else {
+      record.count += 1;
+    }
+
+    const remaining = Math.max(0, max - record.count);
+    const resetSeconds = Math.ceil((record.resetAt - now) / 1000);
+
+    res.setHeader('RateLimit-Limit', max);
+    res.setHeader('RateLimit-Remaining', remaining);
+    res.setHeader('RateLimit-Reset', resetSeconds);
+
+    if (record.count > max) {
+      res.setHeader('Retry-After', resetSeconds);
+      const requestId = String(res.locals?.requestId ?? crypto.randomUUID());
+      res.status(429).json({
+        error: {
+          code,
+          message,
+          requestId
+        }
+      });
+      return;
+    }
+
+    next();
+  };
+}
+
 export function createApiApp(
   config: AppConfig = loadAppConfig(),
   paypalAdapter?: PayPalAdapter,
@@ -216,7 +279,8 @@ export function createApiApp(
       timeoutMs: config.paypalTimeoutMs
     });
 
-  const isNetlify = Boolean(
+  const isServerless = Boolean(
+    process.env.VERCEL ||
     process.env.NETLIFY === 'true' ||
     process.env.LAMBDA_TASK_ROOT ||
     process.env.AWS_LAMBDA_FUNCTION_NAME
@@ -224,7 +288,7 @@ export function createApiApp(
 
   const isDbConfigured = Boolean(
     repository ||
-    (config.databaseUrl && (isPostgresDatabaseUrl(config.databaseUrl) || !isNetlify))
+    (config.databaseUrl && (isPostgresDatabaseUrl(config.databaseUrl) || !isServerless))
   );
 
   let repo: any;
@@ -237,7 +301,7 @@ export function createApiApp(
       repo = new AsyncInvoicePilotRepository(db);
     } else {
       repo = new InvoicePilotRepository(db);
-      if (config.appEnv !== 'production' && !process.env.NETLIFY) {
+      if (config.appEnv !== 'production' && !isServerless) {
         const existing = repo.getUserByEmail(DEMO_TENANT_EMAIL);
         if (!existing || !existing.passwordHash) {
           repo.resetAndSeedDemoTenant();
@@ -272,7 +336,101 @@ export function createApiApp(
   app.locals.geminiAgent = agent;
   app.locals.databaseConfigured = isDbConfigured;
 
+  if (config.appEnv === 'production' || isServerless) {
+    app.set('trust proxy', 1);
+  }
+
   app.disable('x-powered-by');
+
+  // HTTP Security Headers & Content Security Policy
+  app.use((_req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://api-m.sandbox.paypal.com https://api.sandbox.paypal.com https://generativelanguage.googleapis.com; frame-ancestors 'none';"
+    );
+    if (config.appEnv === 'production') {
+      res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
+    next();
+  });
+
+  // CORS & Preflight handling
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const origin = req.header('origin');
+    if (origin) {
+      const vercelUrlOrigin = process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL.trim().replace(/^https?:\/\//, '').replace(/\/$/, '')}`
+        : '';
+      const vercelProdOrigin = process.env.VERCEL_PROJECT_PRODUCTION_URL
+        ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL.trim().replace(/^https?:\/\//, '').replace(/\/$/, '')}`
+        : '';
+      const allowedOrigins = [
+        config.appBaseUrl.replace(/\/$/, ''),
+        'https://invoicepilot-beryl.vercel.app',
+        'https://inquisitive-biscochitos-83e042.netlify.app',
+        vercelUrlOrigin,
+        vercelProdOrigin,
+        ...(config.appEnv !== 'production'
+          ? [
+              'http://localhost:3000',
+              'http://localhost:5173',
+              'http://127.0.0.1:3000',
+              'http://127.0.0.1:5173'
+            ]
+          : [])
+      ].filter(Boolean);
+
+      let isAllowed = false;
+      try {
+        const parsed = new URL(origin);
+        const originNormalized = `${parsed.protocol}//${parsed.host}`;
+        isAllowed = allowedOrigins.includes(originNormalized);
+      } catch {
+        isAllowed = false;
+      }
+
+      if (isAllowed) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+        res.setHeader(
+          'Access-Control-Allow-Headers',
+          'Content-Type, Authorization, x-session-token, x-session-user-id, paypal-transmission-id, paypal-transmission-time, paypal-transmission-sig, paypal-cert-url, paypal-auth-algo'
+        );
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+      }
+
+      if (req.method === 'OPTIONS') {
+        res.status(isAllowed ? 204 : 403).end();
+        return;
+      }
+    }
+    next();
+  });
+
+  // Rate Limiters
+  const defaultRateLimitMax = config.appEnv === 'test' ? 100 : 20;
+  const loginLimiter = createInMemoryRateLimiter({
+    windowMs: 60 * 1000,
+    max: Number(process.env.RATE_LIMIT_LOGIN_MAX ?? defaultRateLimitMax),
+    message: 'Too many login attempts. Please wait a minute before trying again.'
+  });
+
+  const registerLimiter = createInMemoryRateLimiter({
+    windowMs: 60 * 1000,
+    max: Number(process.env.RATE_LIMIT_REGISTER_MAX ?? defaultRateLimitMax),
+    message: 'Too many registration requests. Please wait a minute.'
+  });
+
+  const agentLimiter = createInMemoryRateLimiter({
+    windowMs: 60 * 1000,
+    max: Number(process.env.RATE_LIMIT_AGENT_MAX ?? (config.appEnv === 'test' ? 100 : 30)),
+    message: 'AI assistant rate limit exceeded. Please wait a moment.'
+  });
+
   app.use(express.json({ limit: '256kb' }));
 
   // Attach correlation request ID to every request
@@ -283,7 +441,7 @@ export function createApiApp(
     next();
   });
 
-  // Intercept requests to database-dependent endpoints when database is unconfigured (e.g. on Netlify prior to Supabase setup)
+  // Intercept requests to database-dependent endpoints when database is unconfigured (e.g. in serverless prior to Supabase setup)
   app.use('/api', (req: Request, res: Response, next: NextFunction) => {
     if (req.path === '/health' || req.path === '/health/') {
       return next();
@@ -292,7 +450,7 @@ export function createApiApp(
       res.status(503).json({
         error: 'DATABASE_CONFIGURATION_REQUIRED',
         message:
-          'Supabase PostgreSQL database connection (DATABASE_URL) is required for persistent production operations. No database credentials are configured in Netlify environment variables.',
+          'Supabase PostgreSQL database connection (DATABASE_URL) is required for persistent production operations. No database credentials are configured in production environment variables.',
         databaseConfigured: false,
         documentation: 'docs/DATABASE.md'
       });
@@ -334,7 +492,7 @@ export function createApiApp(
       approvalGateEnforced: true,
       message: dbConfigured
         ? undefined
-        : 'Supabase PostgreSQL database connection (DATABASE_URL) is required in production but has not been configured in Netlify environment variables.',
+        : 'Supabase PostgreSQL database connection (DATABASE_URL) is required in production but has not been configured in environment variables.',
       timestamp: new Date().toISOString()
     });
   });
@@ -386,7 +544,7 @@ export function createApiApp(
   // ============================================================================
   // Stage 09: Authentication & Demo Session Management (/api/auth/*, /api/demo/reset)
   // ============================================================================
-  app.post('/api/auth/register', async (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/auth/register', registerLimiter, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const body = (req.body ?? {}) as Record<string, unknown>;
       const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
@@ -458,7 +616,7 @@ export function createApiApp(
     }
   });
 
-  app.post('/api/auth/login', async (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/auth/login', loginLimiter, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const body = (req.body ?? {}) as Record<string, unknown>;
       const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
@@ -1988,13 +2146,16 @@ export function createApiApp(
             upperStatus === 'UNPAID' ||
             upperStatus === 'PAID' ||
             upperStatus === 'MARKED_AS_PAID' ||
-            upperStatus === 'CANCELLED'
+            upperStatus === 'CANCELLED' ||
+            upperStatus === 'REFUNDED'
           ) {
-            mappedStatus = upperStatus;
+            mappedStatus = upperStatus as ProviderConfirmedStatus;
           } else if (eventType === 'INVOICING.INVOICE.PAID') {
             mappedStatus = 'PAID';
           } else if (eventType === 'INVOICING.INVOICE.CANCELLED') {
             mappedStatus = 'CANCELLED';
+          } else if (eventType === 'INVOICING.INVOICE.REFUNDED') {
+            mappedStatus = 'REFUNDED';
           } else if (eventType === 'INVOICING.INVOICE.SENT') {
             mappedStatus = 'SENT';
           }
@@ -2083,11 +2244,11 @@ export function createApiApp(
     }
   };
 
-  app.post('/api/agent/prepare-invoice', async (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/agent/prepare-invoice', agentLimiter, async (req: Request, res: Response, next: NextFunction) => {
     void handleAgentTurn(req, res, next);
   });
 
-  app.post('/api/agent/chat', async (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/agent/chat', agentLimiter, async (req: Request, res: Response, next: NextFunction) => {
     void handleAgentTurn(req, res, next);
   });
 
@@ -2108,10 +2269,14 @@ export function createApiApp(
             'Cannot draft a reminder for an already paid invoice.'
           );
         }
-        if (invoice.localStatus === 'CANCELLED' || invoice.providerStatus === 'CANCELLED') {
+        if (
+          invoice.localStatus === 'CANCELLED' ||
+          invoice.providerStatus === 'CANCELLED' ||
+          invoice.providerStatus === 'REFUNDED'
+        ) {
           throw new OwnershipOrValidationError(
             'VALIDATION_ERROR',
-            'Cannot draft a reminder for a cancelled invoice.'
+            'Cannot draft a reminder for a cancelled or refunded invoice.'
           );
         }
 

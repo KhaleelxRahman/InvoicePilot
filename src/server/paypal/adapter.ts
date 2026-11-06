@@ -20,6 +20,7 @@ export type ProviderConfirmedStatus =
   | 'PAID'
   | 'MARKED_AS_PAID'
   | 'CANCELLED'
+  | 'REFUNDED'
   | 'UNKNOWN';
 
 export type PayPalAdapterErrorCode =
@@ -184,7 +185,8 @@ function normalizeProviderStatus(raw: string | undefined): ProviderConfirmedStat
     upper === 'UNPAID' ||
     upper === 'PAID' ||
     upper === 'MARKED_AS_PAID' ||
-    upper === 'CANCELLED'
+    upper === 'CANCELLED' ||
+    upper === 'REFUNDED'
   ) {
     return upper;
   }

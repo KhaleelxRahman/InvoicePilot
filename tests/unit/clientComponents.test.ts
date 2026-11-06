@@ -75,6 +75,56 @@ describe('Client Components & Math Invariants', () => {
     it('defaults system preference to light when matchMedia is unavailable', () => {
       expect(resolveEffectiveTheme('system')).toBe('light');
     });
+
+    it('resolves system preference to dark when window.matchMedia indicates dark preference', () => {
+      const originalWindow = (globalThis as any).window;
+      (globalThis as any).window = {
+        matchMedia: (query: string) => ({
+          matches: query.includes('dark'),
+          media: query,
+          onchange: null,
+          addListener: () => {},
+          removeListener: () => {},
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          dispatchEvent: () => true
+        })
+      };
+
+      try {
+        expect(resolveEffectiveTheme('system')).toBe('dark');
+      } finally {
+        if (originalWindow === undefined) {
+          delete (globalThis as any).window;
+        } else {
+          (globalThis as any).window = originalWindow;
+        }
+      }
+    });
+  });
+
+  describe('Draft Form Calculations & Line Item Math', () => {
+    it('calculates line totals, subtotal, and tax correctly from draft form items', () => {
+      const items = [
+        { description: 'Item 1', quantity: '2', unitPriceDecimal: '50.00' },
+        { description: 'Item 2', quantity: '1', unitPriceDecimal: '25.50' }
+      ];
+
+      const item1Minor = parsePreviewMinor(items[0].unitPriceDecimal, 'USD')! * Number(items[0].quantity);
+      const item2Minor = parsePreviewMinor(items[1].unitPriceDecimal, 'USD')! * Number(items[1].quantity);
+      expect(item1Minor).toBe(10000); // 2 * $50.00 = $100.00
+      expect(item2Minor).toBe(2550);  // 1 * $25.50 = $25.50
+
+      const subtotalMinor = item1Minor + item2Minor;
+      expect(subtotalMinor).toBe(12550); // $125.50
+
+      const taxRateBps = 800; // 8%
+      const taxMinor = Math.round((subtotalMinor * taxRateBps) / 10000);
+      expect(taxMinor).toBe(1004); // $10.04
+      expect(subtotalMinor + taxMinor).toBe(13554); // $135.54
+
+      expect(formatMoneyFromMinor(subtotalMinor + taxMinor, 'USD')).toBe('USD 135.54');
+    });
   });
 
   describe('Modular Component Contract Invariants', () => {
