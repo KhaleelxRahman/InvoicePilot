@@ -118,6 +118,7 @@ describe('Stage 07 — Constrained Gemini Structured Agent & Safety Evaluations'
   }
 
   afterEach(() => {
+    vi.restoreAllMocks();
     for (const db of openDbs.splice(0, openDbs.length)) {
       try {
         db.close();
@@ -128,6 +129,50 @@ describe('Stage 07 — Constrained Gemini Structured Agent & Safety Evaluations'
     for (const dir of tempDirs.splice(0, tempDirs.length)) {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it('logs unavailable reminder models and preserves the conventional fallback for non-OK responses', async () => {
+    const harness = createAgentTestHarness();
+    const reminderInput = {
+      clientName: 'Elena Vance',
+      businessName: 'Aarav Mehta Design & Engineering',
+      invoiceNumber: 'INV-DEMO-1001',
+      amountFormatted: '$2,100.00',
+      dueDate: '2026-10-29',
+      daysOverdue: 3,
+      tone: 'polite' as const
+    };
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const notFoundAgent = new GeminiInvoiceAgent(harness.repo, {
+      apiKey: 'test-reminder-key-404',
+      model: 'gemini-3.8-flash',
+      fetchImpl: vi
+        .fn(async () => new Response('', { status: 404 })) as unknown as typeof fetch
+    });
+
+    const notFoundReminder = await notFoundAgent.draftReminderWording(reminderInput);
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[Gemini Reminder] Configured model "gemini-3.8-flash" was not found or is unavailable (HTTP 404); using the conventional reminder fallback.'
+    );
+    expect(notFoundReminder).toEqual({
+      subject: 'Courtesy Reminder: Invoice INV-DEMO-1001 from Aarav Mehta Design & Engineering',
+      body: 'Hi Elena Vance,\n\nThis is a friendly reminder that invoice INV-DEMO-1001 for $2,100.00 was due on 2026-10-29 (3 days ago).\n\nIf payment has already been sent, please disregard this note. Thank you for your business!\n\nBest regards,\nAarav Mehta Design & Engineering',
+      tone: 'polite',
+      usedFallback: true
+    });
+
+    const serverErrorAgent = new GeminiInvoiceAgent(harness.repo, {
+      apiKey: 'test-reminder-key-500',
+      model: 'gemini-3.8-flash',
+      fetchImpl: vi
+        .fn(async () => new Response('', { status: 500 })) as unknown as typeof fetch
+    });
+
+    const serverErrorReminder = await serverErrorAgent.draftReminderWording(reminderInput);
+
+    expect(serverErrorReminder).toEqual(notFoundReminder);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
   });
 
   it('prepares a validated invoice draft from natural language, resolves stored client, recalculates totals server-side, and never sends without approval', async () => {

@@ -5,7 +5,7 @@ async function main() {
   const config = loadAppConfig(process.env, { loadDotEnvFile: true });
 
   const apiKey = (config.geminiApiKey || '').trim();
-  const model = (config.geminiModel || 'gemini-3.8-flash').trim();
+  const model = config.geminiModel;
 
   if (!apiKey) {
     console.log('[Gemini Verification] Status: NOT CONFIGURED');
@@ -76,4 +76,3 @@ async function main() {
 }
 
 main();
-

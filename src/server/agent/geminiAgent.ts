@@ -1560,6 +1560,11 @@ Rules:
       });
 
       if (!response.ok) {
+        if (response.status === 404) {
+          console.warn(
+            `[Gemini Reminder] Configured model "${this.model}" was not found or is unavailable (HTTP 404); using the conventional reminder fallback.`
+          );
+        }
         return {
           subject: fallback.subject,
           body: fallback.body,
