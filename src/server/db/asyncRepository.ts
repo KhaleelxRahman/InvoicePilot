@@ -1,4 +1,4 @@
-import crypto from 'node:crypto';
+﻿import crypto from 'node:crypto';
 import type { IAsyncSqlDatabase } from './types.js';
 import { getCurrencyExponent, formatMinorUnitsToDecimal } from './schema.js';
 import type { PayPalMode } from '../config.js';
@@ -11,6 +11,7 @@ import {
   DEMO_TENANT_USER_ID,
   DEMO_TENANT_EMAIL,
   OwnershipOrValidationError,
+  validateWebhookEventQuery,
   isValidIsoCalendarDate,
   type UserRecord,
   type SessionRecord,
@@ -1209,7 +1210,8 @@ export class AsyncInvoicePilotRepository {
     await this.db
       .prepare(
         `UPDATE invoices
-         SET provider_status = ?,
+         SET provider_invoice_id = COALESCE(?, provider_invoice_id),
+             provider_status = ?,
              local_status = ?,
              provider_recipient_view_url = COALESCE(?, provider_recipient_view_url),
              provider_invoicer_view_url = COALESCE(?, provider_invoicer_view_url),
@@ -1218,6 +1220,7 @@ export class AsyncInvoicePilotRepository {
          WHERE id = ? AND owner_user_id = ?`
       )
       .run(
+        providerInvoiceId,
         status,
         localStatus,
         snapshot.recipientViewUrl ?? null,
@@ -1463,6 +1466,12 @@ export class AsyncInvoicePilotRepository {
     }
   ): Promise<{ action: PendingActionRecord; slip: ApprovalSlipPayload }> {
     const invoice = await this.getInvoiceForOwner(ownerUserId, invoiceId);
+    if (invoice.localStatus === 'CANCELLED') {
+      throw new OwnershipOrValidationError(
+        'VALIDATION_ERROR',
+        'Cancelled invoices cannot be queued for approval.'
+      );
+    }
     if (
       invoice.localStatus === 'SENT' ||
       (invoice.providerInvoiceId &&
@@ -1472,12 +1481,6 @@ export class AsyncInvoicePilotRepository {
       throw new OwnershipOrValidationError(
         'VALIDATION_ERROR',
         'Invoice has already been sent and cannot be queued for send approval again.'
-      );
-    }
-    if (invoice.localStatus === 'CANCELLED') {
-      throw new OwnershipOrValidationError(
-        'VALIDATION_ERROR',
-        'Cancelled invoices cannot be queued for approval.'
       );
     }
 
@@ -1914,10 +1917,22 @@ export class AsyncInvoicePilotRepository {
     return { id, duplicate: false, deduplicated: false };
   }
 
-  public async listWebhookEvents(limit = 50): Promise<WebhookEventDetailRecord[]> {
+  public async listWebhookEvents(
+    ownerUserId: string,
+    limit = 50
+  ): Promise<WebhookEventDetailRecord[]> {
+    const query = validateWebhookEventQuery(ownerUserId, limit);
     const rows = (await this.db
-      .prepare('SELECT * FROM webhook_events ORDER BY received_at DESC LIMIT ?')
-      .all(limit)) as any[];
+      .prepare(
+        `SELECT webhook_events.*
+         FROM webhook_events
+         INNER JOIN invoices
+           ON invoices.provider_invoice_id = webhook_events.related_provider_invoice_id
+          AND invoices.owner_user_id = ?
+         ORDER BY webhook_events.received_at DESC
+         LIMIT ?`
+      )
+      .all(query.ownerUserId, query.limit)) as any[];
 
     return rows.map((r) => ({
       id: r.id,
@@ -2275,14 +2290,22 @@ export class AsyncInvoicePilotRepository {
   }
 
   public async processDueScheduledReminders(
-    currentTimeIso: string = new Date().toISOString(),
-    sendFn?: (reminder: ReminderRecord) => Promise<string>
+    currentTimeIso: string,
+    sendFn: ((reminder: ReminderRecord) => Promise<string>) | undefined,
+    ownerUserId: string
   ): Promise<Array<{ id: string; success: boolean; evidence?: string; error?: string }>> {
+    if (!ownerUserId) throw new Error('Scheduler owner is required.');
+
     const dueRows = (await this.db
       .prepare(
-        `SELECT * FROM reminders WHERE approval_state = 'APPROVED' AND scheduled_for IS NOT NULL AND scheduled_for <= ?`
+        `SELECT *
+         FROM reminders
+         WHERE owner_user_id = ?
+           AND approval_state = 'APPROVED'
+           AND scheduled_for IS NOT NULL
+           AND scheduled_for <= ?`
       )
-      .all(currentTimeIso)) as any[];
+      .all(ownerUserId, currentTimeIso)) as any[];
 
     const results: Array<{ id: string; success: boolean; evidence?: string; error?: string }> = [];
     for (const row of dueRows) {

@@ -161,7 +161,15 @@ describe('Stage 14: Remaining Pages, Controls, Templates, Deletion & Webhooks', 
 
   describe('PayPal Webhook Events Viewer', () => {
     it('GET /api/webhooks/paypal/events lists verified incoming webhook events', async () => {
-      const { app, repo, rawDemoToken } = createTestSetup();
+      const { app, repo, demoUser, rawDemoToken } = createTestSetup();
+      const seededInvoice = repo.listInvoicesForOwner(demoUser.id)[0];
+      const providerInvoiceId = 'provider-invoice-owned-by-demo-tenant';
+      repo.refreshInvoiceProviderStatus(demoUser.id, seededInvoice.id, {
+        providerMode: 'mock',
+        isMock: true,
+        providerInvoiceId,
+        providerStatus: 'PAID'
+      });
 
       // Record a test webhook event in repo
       repo.recordWebhookEvent({
@@ -169,7 +177,16 @@ describe('Stage 14: Remaining Pages, Controls, Templates, Deletion & Webhooks', 
         eventType: 'INVOICING.INVOICE.PAID',
         verificationStatus: 'VERIFIED',
         processingStatus: 'PROCESSED',
+        relatedProviderInvoiceId: providerInvoiceId,
         payload: { id: 'WH-TEST-STAGE14-001', event_type: 'INVOICING.INVOICE.PAID', summary: 'Invoice INV2-TEST paid by buyer' }
+      });
+      repo.recordWebhookEvent({
+        providerEventId: 'WH-TEST-STAGE14-002',
+        eventType: 'INVOICING.INVOICE.PAID',
+        verificationStatus: 'VERIFIED',
+        processingStatus: 'PROCESSED',
+        relatedProviderInvoiceId: 'provider-invoice-owned-by-another-tenant',
+        payload: { id: 'WH-TEST-STAGE14-002', event_type: 'INVOICING.INVOICE.PAID' }
       });
 
       const res = await request(app)
@@ -186,6 +203,106 @@ describe('Stage 14: Remaining Pages, Controls, Templates, Deletion & Webhooks', 
       expect(found.verificationStatus).toBe('VERIFIED');
       expect(found.payload).toBeDefined();
       expect(found.payload.id).toBe('WH-TEST-STAGE14-001');
+      expect(res.body.events.some((e: any) => e.providerEventId === 'WH-TEST-STAGE14-002')).toBe(false);
+    });
+
+    it('isolates webhook history between two actual tenants and rejects unsafe limits', async () => {
+      const { app, repo } = createTestSetup();
+      expect(() => repo.listWebhookEvents('')).toThrow('Owner user ID is required');
+      const tenantA = repo.createUser({
+        email: 'webhook-tenant-a@example.com',
+        displayName: 'Webhook Tenant A',
+        passwordHash: 'hash-a',
+        isDemo: false
+      });
+      const tenantB = repo.createUser({
+        email: 'webhook-tenant-b@example.com',
+        displayName: 'Webhook Tenant B',
+        passwordHash: 'hash-b',
+        isDemo: false
+      });
+      const { rawToken: tokenA } = repo.createSession(tenantA.id);
+      const { rawToken: tokenB } = repo.createSession(tenantB.id);
+      const clientA = repo.createClient(tenantA.id, {
+        fullName: 'Tenant A Client',
+        email: 'tenant-a-client@example.com',
+        defaultCurrency: 'USD'
+      });
+      const clientB = repo.createClient(tenantB.id, {
+        fullName: 'Tenant B Client',
+        email: 'tenant-b-client@example.com',
+        defaultCurrency: 'USD'
+      });
+      const invoiceA = repo.createInvoiceDraft(tenantA.id, {
+        clientId: clientA.id,
+        invoiceNumber: 'INV-WEBHOOK-A',
+        currencyCode: 'USD',
+        issueDate: '2026-11-01',
+        dueDate: '2026-11-15',
+        items: [{ description: 'Tenant A work', quantity: 1, unitAmountMinor: 10000, currencyCode: 'USD' }]
+      });
+      const invoiceB = repo.createInvoiceDraft(tenantB.id, {
+        clientId: clientB.id,
+        invoiceNumber: 'INV-WEBHOOK-B',
+        currencyCode: 'USD',
+        issueDate: '2026-11-01',
+        dueDate: '2026-11-15',
+        items: [{ description: 'Tenant B work', quantity: 1, unitAmountMinor: 20000, currencyCode: 'USD' }]
+      });
+      const providerInvoiceIdA = 'provider-invoice-tenant-a';
+      const providerInvoiceIdB = 'provider-invoice-tenant-b';
+      repo.refreshInvoiceProviderStatus(tenantA.id, invoiceA.id, {
+        providerMode: 'mock',
+        isMock: true,
+        providerInvoiceId: providerInvoiceIdA,
+        providerStatus: 'PAID'
+      });
+      repo.refreshInvoiceProviderStatus(tenantB.id, invoiceB.id, {
+        providerMode: 'mock',
+        isMock: true,
+        providerInvoiceId: providerInvoiceIdB,
+        providerStatus: 'PAID'
+      });
+      repo.recordWebhookEvent({
+        providerEventId: 'WH-TEST-TENANT-A',
+        eventType: 'INVOICING.INVOICE.PAID',
+        verificationStatus: 'VERIFIED',
+        processingStatus: 'PROCESSED',
+        relatedProviderInvoiceId: providerInvoiceIdA,
+        payload: { id: 'WH-TEST-TENANT-A', event_type: 'INVOICING.INVOICE.PAID' }
+      });
+      repo.recordWebhookEvent({
+        providerEventId: 'WH-TEST-TENANT-B',
+        eventType: 'INVOICING.INVOICE.PAID',
+        verificationStatus: 'VERIFIED',
+        processingStatus: 'PROCESSED',
+        relatedProviderInvoiceId: providerInvoiceIdB,
+        payload: { id: 'WH-TEST-TENANT-B', event_type: 'INVOICING.INVOICE.PAID' }
+      });
+
+      const responseA = await request(app)
+        .get('/api/webhooks/paypal/events')
+        .set('Authorization', `Bearer ${tokenA}`);
+      const responseB = await request(app)
+        .get('/api/webhooks/paypal/events')
+        .set('Authorization', `Bearer ${tokenB}`);
+
+      expect(responseA.status).toBe(200);
+      expect(responseB.status).toBe(200);
+      expect(responseA.body.events.map((event: any) => event.providerEventId)).toEqual([
+        'WH-TEST-TENANT-A'
+      ]);
+      expect(responseB.body.events.map((event: any) => event.providerEventId)).toEqual([
+        'WH-TEST-TENANT-B'
+      ]);
+
+      for (const limit of ['0', '-1', '101', 'not-a-number']) {
+        const response = await request(app)
+          .get(`/api/webhooks/paypal/events?limit=${limit}`)
+          .set('Authorization', `Bearer ${tokenA}`);
+        expect(response.status).toBe(400);
+        expect(response.body.error.code).toBe('VALIDATION_ERROR');
+      }
     });
 
     it('rejects unauthenticated requests to webhook events viewer', async () => {

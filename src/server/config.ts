@@ -67,6 +67,10 @@ export function loadAppConfig(
   const appEnv =
     rawEnv === 'production' || rawEnv === 'test' ? rawEnv : 'development';
 
+  if (appEnv === 'production' && modeResult.data === 'mock') {
+    throw new Error('PAYPAL_MODE=mock is not allowed when APP_ENV=production.');
+  }
+
   const port = Number.parseInt(merged.PORT ?? '3000', 10);
   const safePort = Number.isFinite(port) && port > 0 ? port : 3000;
 

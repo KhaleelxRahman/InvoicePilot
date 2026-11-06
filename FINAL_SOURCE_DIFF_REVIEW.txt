@@ -1,0 +1,129 @@
+﻿diff --git a/src/server/app.ts b/src/server/app.ts
+index 47d24d2..ca95dc0 100644
+--- a/src/server/app.ts
++++ b/src/server/app.ts
+@@ -2608,11 +2608,8 @@ export function createApiApp(
+       try {
+         const ownerId = await requireOwner(req, res);
+         if (!ownerId) return;
+-        const body = (req.body ?? {}) as Record<string, unknown>;
+-        const currentTimeIso =
+-          typeof body.currentTimeIso === 'string'
+-            ? body.currentTimeIso
+-            : new Date().toISOString();
++        // Never trust a client-supplied timestamp for scheduled financial actions.
++        const currentTimeIso = new Date().toISOString();
+ 
+         const results = await repo.processDueScheduledReminders(
+           currentTimeIso,
+@@ -2632,7 +2629,8 @@ export function createApiApp(
+               throw new Error(`PayPal reminder delivery failed: ${result.error.message}`);
+             }
+             return `SCHEDULED_DELIVERY_CONFIRMED:RECIPIENT=${client.email}:TIME=${currentTimeIso}:MODE=${adapter.mode}`;
+-          }
++          },
++          ownerId
+         );
+ 
+         res.status(200).json({ ok: true, currentTimeIso, results });
+diff --git a/src/server/db/asyncRepository.ts b/src/server/db/asyncRepository.ts
+index 0a89776..498cba6 100644
+--- a/src/server/db/asyncRepository.ts
++++ b/src/server/db/asyncRepository.ts
+@@ -2275,14 +2275,17 @@ export class AsyncInvoicePilotRepository {
+   }
+ 
+   public async processDueScheduledReminders(
+-    currentTimeIso: string = new Date().toISOString(),
+-    sendFn?: (reminder: ReminderRecord) => Promise<string>
++    currentTimeIso: string,
++    sendFn: ((reminder: ReminderRecord) => Promise<string>) | undefined,
++    ownerUserId: string
+   ): Promise<Array<{ id: string; success: boolean; evidence?: string; error?: string }>> {
++    if (!ownerUserId) throw new Error('Scheduler owner is required.');
++
+     const dueRows = (await this.db
+       .prepare(
+-        `SELECT * FROM reminders WHERE approval_state = 'APPROVED' AND scheduled_for IS NOT NULL AND scheduled_for <= ?`
++        `SELECT * FROM reminders WHERE owner_user_id = ? AND approval_state = 'APPROVED' AND scheduled_for IS NOT NULL AND scheduled_for <= ?`
+       )
+-      .all(currentTimeIso)) as any[];
++      .all(ownerUserId, currentTimeIso)) as any[];
+ 
+     const results: Array<{ id: string; success: boolean; evidence?: string; error?: string }> = [];
+     for (const row of dueRows) {
+diff --git a/src/server/db/postgresPoolAdapter.ts b/src/server/db/postgresPoolAdapter.ts
+index 6a8a90a..ac5c9a6 100644
+--- a/src/server/db/postgresPoolAdapter.ts
++++ b/src/server/db/postgresPoolAdapter.ts
+@@ -29,7 +29,18 @@ export function convertQuestionMarksToDollarNumbered(sql: string): string {
+ export function buildPostgresSslConfig(
+   connectionString: string
+ ): boolean | { rejectUnauthorized: boolean; ca?: string } {
+-  if (/sslmode=disable/i.test(connectionString) || /localhost|127\.0\.0\.1/.test(connectionString)) {
++  const appEnv = (process.env.APP_ENV || process.env.NODE_ENV || 'development').toLowerCase();
++  const isDevelopment = appEnv === 'development';
++  const requestsInsecureTls =
++    /sslmode=(disable|no-verify)/i.test(connectionString) ||
++    process.env.SUPABASE_SSL_REJECT_UNAUTHORIZED === 'false';
++
++  // Explicit insecure TLS settings are permitted only for local development.
++  if (requestsInsecureTls && !isDevelopment) {
++    throw new Error('Insecure PostgreSQL TLS configuration is not allowed outside development.');
++  }
++
++  if (isDevelopment && (/sslmode=disable/i.test(connectionString) || /localhost|127\.0\.0\.1/.test(connectionString))) {
+     return false;
+   }
+ 
+@@ -41,20 +52,9 @@ export function buildPostgresSslConfig(
+     };
+   }
+ 
+-  const isServerless = Boolean(
+-    process.env.VERCEL ||
+-    process.env.NETLIFY === 'true' ||
+-    process.env.LAMBDA_TASK_ROOT ||
+-    process.env.AWS_LAMBDA_FUNCTION_NAME
+-  );
+-
+-  const allowInsecureTls =
+-    /sslmode=no-verify/i.test(connectionString) ||
+-    process.env.SUPABASE_SSL_REJECT_UNAUTHORIZED === 'false' ||
+-    isServerless;
+-
++  // Always validate remote PostgreSQL certificates, including on serverless hosts.
+   return {
+-    rejectUnauthorized: !allowInsecureTls
++    rejectUnauthorized: true
+   };
+ }
+ 
+diff --git a/src/server/db/repository.ts b/src/server/db/repository.ts
+index 4ab4943..b2613ab 100644
+--- a/src/server/db/repository.ts
++++ b/src/server/db/repository.ts
+@@ -3023,16 +3023,19 @@ export class InvoicePilotRepository {
+   }
+ 
+   public async processDueScheduledReminders(
+-    currentTimeIso: string = new Date().toISOString(),
+-    sendFn?: (reminder: ReminderRecord) => Promise<string>
++    currentTimeIso: string,
++    sendFn: ((reminder: ReminderRecord) => Promise<string>) | undefined,
++    ownerUserId: string
+   ): Promise<Array<{ id: string; success: boolean; evidence?: string; error?: string }>> {
++    if (!ownerUserId) throw new Error('Scheduler owner is required.');
++
+     const rows = this.db
+       .prepare(
+         `SELECT id, owner_user_id, invoice_id, tone, subject, body, approval_state, scheduled_for, sent_at, delivery_evidence, created_at, updated_at
+          FROM reminders
+-         WHERE approval_state = 'SCHEDULED' AND scheduled_for IS NOT NULL AND scheduled_for <= ?`
++         WHERE owner_user_id = ? AND approval_state = 'SCHEDULED' AND scheduled_for IS NOT NULL AND scheduled_for <= ?`
+       )
+-      .all(currentTimeIso) as Array<{
++      .all(ownerUserId, currentTimeIso) as Array<{
+       id: string;
+       owner_user_id: string;
+       invoice_id: string;

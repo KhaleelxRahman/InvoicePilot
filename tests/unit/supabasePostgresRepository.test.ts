@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import { newDb, DataType } from 'pg-mem';
 import {
@@ -128,6 +128,107 @@ describe('Supabase PostgreSQL Repository Engine & Integration', () => {
     expect(() => repo.requestInvoiceSendApproval(userB.id, invoiceA.id)).toThrow(
       OwnershipOrValidationError
     );
+  });
+
+  it('isolates webhook history and validates owner and limit inputs in the async PostgreSQL repository', async () => {
+    const memDb = newDb({ autoCreateForeignKeyIndices: true });
+    memDb.public.registerFunction({
+      name: 'length',
+      args: [DataType.text],
+      returns: DataType.integer,
+      implementation: (value: string) => (value ? value.length : 0)
+    });
+    const ddl = fs.readFileSync(
+      path.resolve(process.cwd(), 'migrations/001_initial_supabase_schema.sql'),
+      'utf-8'
+    );
+    memDb.public.query(ddl);
+    const { Pool } = memDb.adapters.createPg();
+    const pgPool = new Pool();
+    const asyncRepo = new AsyncInvoicePilotRepository(new PostgresPoolAdapter(pgPool));
+
+    try {
+      const tenantA = await asyncRepo.createUser({
+        email: 'async-webhook-tenant-a@example.com',
+        displayName: 'Async Webhook Tenant A',
+        passwordHash: 'hash-a',
+        isDemo: false
+      });
+      const tenantB = await asyncRepo.createUser({
+        email: 'async-webhook-tenant-b@example.com',
+        displayName: 'Async Webhook Tenant B',
+        passwordHash: 'hash-b',
+        isDemo: false
+      });
+      const clientA = await asyncRepo.createClient(tenantA.id, {
+        fullName: 'Async Tenant A Client',
+        email: 'async-tenant-a-client@example.com',
+        defaultCurrency: 'USD'
+      });
+      const clientB = await asyncRepo.createClient(tenantB.id, {
+        fullName: 'Async Tenant B Client',
+        email: 'async-tenant-b-client@example.com',
+        defaultCurrency: 'USD'
+      });
+      const invoiceA = await asyncRepo.createInvoiceDraft(tenantA.id, {
+        clientId: clientA.id,
+        invoiceNumber: 'INV-ASYNC-WEBHOOK-A',
+        currencyCode: 'USD',
+        issueDate: '2026-11-01',
+        dueDate: '2026-11-15',
+        items: [{ description: 'Async Tenant A work', quantity: 1, unitAmountMinor: 10000, currencyCode: 'USD' }]
+      });
+      const invoiceB = await asyncRepo.createInvoiceDraft(tenantB.id, {
+        clientId: clientB.id,
+        invoiceNumber: 'INV-ASYNC-WEBHOOK-B',
+        currencyCode: 'USD',
+        issueDate: '2026-11-01',
+        dueDate: '2026-11-15',
+        items: [{ description: 'Async Tenant B work', quantity: 1, unitAmountMinor: 20000, currencyCode: 'USD' }]
+      });
+      await asyncRepo.refreshInvoiceProviderStatus(tenantA.id, invoiceA.id, {
+        providerMode: 'sandbox',
+        isMock: false,
+        providerInvoiceId: 'provider-async-tenant-a',
+        providerStatus: 'PAID'
+      });
+      await asyncRepo.refreshInvoiceProviderStatus(tenantB.id, invoiceB.id, {
+        providerMode: 'sandbox',
+        isMock: false,
+        providerInvoiceId: 'provider-async-tenant-b',
+        providerStatus: 'PAID'
+      });
+      await asyncRepo.recordWebhookEvent({
+        providerEventId: 'WH-ASYNC-TENANT-A',
+        eventType: 'INVOICING.INVOICE.PAID',
+        verificationStatus: 'VERIFIED',
+        processingStatus: 'PROCESSED',
+        relatedProviderInvoiceId: 'provider-async-tenant-a',
+        payload: { id: 'WH-ASYNC-TENANT-A' }
+      });
+      await asyncRepo.recordWebhookEvent({
+        providerEventId: 'WH-ASYNC-TENANT-B',
+        eventType: 'INVOICING.INVOICE.PAID',
+        verificationStatus: 'VERIFIED',
+        processingStatus: 'PROCESSED',
+        relatedProviderInvoiceId: 'provider-async-tenant-b',
+        payload: { id: 'WH-ASYNC-TENANT-B' }
+      });
+
+      const eventsA = await asyncRepo.listWebhookEvents(tenantA.id);
+      const eventsB = await asyncRepo.listWebhookEvents(tenantB.id);
+      expect(eventsA.map((event) => event.providerEventId)).toEqual(['WH-ASYNC-TENANT-A']);
+      expect(eventsB.map((event) => event.providerEventId)).toEqual(['WH-ASYNC-TENANT-B']);
+      await expect(asyncRepo.listWebhookEvents('')).rejects.toThrow('Owner user ID is required');
+      await expect(asyncRepo.listWebhookEvents(tenantA.id, 0)).rejects.toThrow(
+        'Webhook event limit must be an integer'
+      );
+      await expect(asyncRepo.listWebhookEvents(tenantA.id, 101)).rejects.toThrow(
+        'Webhook event limit must be an integer'
+      );
+    } finally {
+      await pgPool.end();
+    }
   });
 
   // =========================================================================
@@ -481,8 +582,35 @@ describe('Supabase PostgreSQL Repository Engine & Integration', () => {
     const tlsConfig = buildPostgresSslConfig('postgresql://postgres.ref:secret@aws-0-us-east-1.pooler.supabase.com:6543/postgres');
     expect(typeof tlsConfig === 'object' && tlsConfig.rejectUnauthorized).toBe(true);
 
-    const localhostTls = buildPostgresSslConfig('postgresql://postgres:secret@localhost:5432/postgres');
-    expect(localhostTls).toBe(false);
+    // Serverless hosting must never disable remote certificate verification.
+    vi.stubEnv('APP_ENV', 'production');
+    vi.stubEnv('VERCEL', '1');
+    try {
+      const serverlessTls = buildPostgresSslConfig(
+        'postgresql://postgres.ref:secret@aws-0-us-east-1.pooler.supabase.com:6543/postgres'
+      );
+      expect(typeof serverlessTls === 'object' && serverlessTls.rejectUnauthorized).toBe(true);
+
+      expect(() =>
+        buildPostgresSslConfig(
+          'postgresql://postgres.ref:secret@aws-0-us-east-1.pooler.supabase.com:6543/postgres?sslmode=disable'
+        )
+      ).toThrow('Insecure PostgreSQL TLS configuration');
+
+      expect(() =>
+        buildPostgresSslConfig(
+          'postgresql://postgres.ref:secret@aws-0-us-east-1.pooler.supabase.com:6543/postgres?sslmode=no-verify'
+        )
+      ).toThrow('Insecure PostgreSQL TLS configuration');
+
+      vi.stubEnv('APP_ENV', 'development');
+      const localhostTls = buildPostgresSslConfig(
+        'postgresql://postgres:secret@localhost:5432/postgres'
+      );
+      expect(localhostTls).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+    }
 
     // 2. Instantiate a real pg.Pool drop-in with complete Supabase PostgreSQL DDL
     const memDb = newDb({ autoCreateForeignKeyIndices: true });

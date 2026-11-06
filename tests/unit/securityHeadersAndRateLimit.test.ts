@@ -39,10 +39,10 @@ describe('Security Headers, CORS, Rate Limiting & Proxy Trust', () => {
   it('serves standard HTTP security headers and CSP on API responses', async () => {
     const config = loadAppConfig({
       DATABASE_URL: `file:${dbFilePath}`,
-      PAYPAL_MODE: 'mock',
+      PAYPAL_MODE: 'sandbox',
       APP_ENV: 'production'
     });
-    const adapter = createPayPalAdapter({ mode: 'mock' });
+    const adapter = createPayPalAdapter({ mode: 'sandbox' });
     const app = createApiApp(config, adapter, repo);
 
     const res = await request(app).get('/api/health');
@@ -204,12 +204,12 @@ describe('Security Headers, CORS, Rate Limiting & Proxy Trust', () => {
       const config = loadAppConfig(
         {
           DATABASE_URL: dbFilePath,
-          PAYPAL_MODE: 'mock',
+          PAYPAL_MODE: 'sandbox',
           APP_ENV: 'production'
         },
         { loadDotEnvFile: false }
       );
-      const adapter = createPayPalAdapter({ mode: 'mock' });
+      const adapter = createPayPalAdapter({ mode: 'sandbox' });
 
       // Simulate two independent serverless isolates (appInstanceA and appInstanceB) backed by the same DB repository
       const appInstanceA = createApiApp(config, adapter, repo);
@@ -341,4 +341,3 @@ describe('Security Headers, CORS, Rate Limiting & Proxy Trust', () => {
     await poolAdapter.close();
   });
 });
-

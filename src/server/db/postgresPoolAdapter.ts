@@ -29,7 +29,18 @@ export function convertQuestionMarksToDollarNumbered(sql: string): string {
 export function buildPostgresSslConfig(
   connectionString: string
 ): boolean | { rejectUnauthorized: boolean; ca?: string } {
-  if (/sslmode=disable/i.test(connectionString) || /localhost|127\.0\.0\.1/.test(connectionString)) {
+  const appEnv = (process.env.APP_ENV || process.env.NODE_ENV || 'development').toLowerCase();
+  const isDevelopment = appEnv === 'development';
+  const requestsInsecureTls =
+    /sslmode=(disable|no-verify)/i.test(connectionString) ||
+    process.env.SUPABASE_SSL_REJECT_UNAUTHORIZED === 'false';
+
+  // Explicit insecure TLS settings are permitted only for local development.
+  if (requestsInsecureTls && !isDevelopment) {
+    throw new Error('Insecure PostgreSQL TLS configuration is not allowed outside development.');
+  }
+
+  if (isDevelopment && (/sslmode=disable/i.test(connectionString) || /localhost|127\.0\.0\.1/.test(connectionString))) {
     return false;
   }
 
@@ -41,20 +52,9 @@ export function buildPostgresSslConfig(
     };
   }
 
-  const isServerless = Boolean(
-    process.env.VERCEL ||
-    process.env.NETLIFY === 'true' ||
-    process.env.LAMBDA_TASK_ROOT ||
-    process.env.AWS_LAMBDA_FUNCTION_NAME
-  );
-
-  const allowInsecureTls =
-    /sslmode=no-verify/i.test(connectionString) ||
-    process.env.SUPABASE_SSL_REJECT_UNAUTHORIZED === 'false' ||
-    isServerless;
-
+  // Always validate remote PostgreSQL certificates, including on serverless hosts.
   return {
-    rejectUnauthorized: !allowInsecureTls
+    rejectUnauthorized: true
   };
 }
 

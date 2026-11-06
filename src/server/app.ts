@@ -2608,11 +2608,8 @@ export function createApiApp(
       try {
         const ownerId = await requireOwner(req, res);
         if (!ownerId) return;
-        const body = (req.body ?? {}) as Record<string, unknown>;
-        const currentTimeIso =
-          typeof body.currentTimeIso === 'string'
-            ? body.currentTimeIso
-            : new Date().toISOString();
+        // Never trust a client-supplied timestamp for scheduled financial actions.
+        const currentTimeIso = new Date().toISOString();
 
         const results = await repo.processDueScheduledReminders(
           currentTimeIso,
@@ -2632,7 +2629,8 @@ export function createApiApp(
               throw new Error(`PayPal reminder delivery failed: ${result.error.message}`);
             }
             return `SCHEDULED_DELIVERY_CONFIRMED:RECIPIENT=${client.email}:TIME=${currentTimeIso}:MODE=${adapter.mode}`;
-          }
+          },
+          ownerId
         );
 
         res.status(200).json({ ok: true, currentTimeIso, results });
@@ -2708,8 +2706,8 @@ export function createApiApp(
       const ownerId = await requireOwner(req, res);
       if (!ownerId) return;
 
-      const limit = Number(req.query.limit) || 50;
-      const events = await repo.listWebhookEvents(limit);
+      const limit = req.query.limit === undefined ? 50 : Number(req.query.limit);
+      const events = await repo.listWebhookEvents(ownerId, limit);
       res.status(200).json({ ok: true, events });
     } catch (err) {
       next(err);

@@ -10,6 +10,24 @@ import {
 
 export const DEMO_TENANT_USER_ID = 'usr_demo_tenant_01';
 export const DEMO_TENANT_EMAIL = 'demo.freelancer@invoicepilot.local';
+export const MAX_WEBHOOK_EVENT_LIMIT = 100;
+
+export function validateWebhookEventQuery(
+  ownerUserId: string,
+  limit: number
+): { ownerUserId: string; limit: number } {
+  const normalizedOwnerUserId = ownerUserId.trim();
+  if (!normalizedOwnerUserId) {
+    throw new OwnershipOrValidationError('VALIDATION_ERROR', 'Owner user ID is required.');
+  }
+  if (!Number.isInteger(limit) || limit < 1 || limit > MAX_WEBHOOK_EVENT_LIMIT) {
+    throw new OwnershipOrValidationError(
+      'VALIDATION_ERROR',
+      `Webhook event limit must be an integer between 1 and ${MAX_WEBHOOK_EVENT_LIMIT}.`
+    );
+  }
+  return { ownerUserId: normalizedOwnerUserId, limit };
+}
 
 export interface UserRecord {
   id: string;
@@ -3023,16 +3041,19 @@ export class InvoicePilotRepository {
   }
 
   public async processDueScheduledReminders(
-    currentTimeIso: string = new Date().toISOString(),
-    sendFn?: (reminder: ReminderRecord) => Promise<string>
+    currentTimeIso: string,
+    sendFn: ((reminder: ReminderRecord) => Promise<string>) | undefined,
+    ownerUserId: string
   ): Promise<Array<{ id: string; success: boolean; evidence?: string; error?: string }>> {
+    if (!ownerUserId) throw new Error('Scheduler owner is required.');
+
     const rows = this.db
       .prepare(
         `SELECT id, owner_user_id, invoice_id, tone, subject, body, approval_state, scheduled_for, sent_at, delivery_evidence, created_at, updated_at
          FROM reminders
-         WHERE approval_state = 'SCHEDULED' AND scheduled_for IS NOT NULL AND scheduled_for <= ?`
+         WHERE owner_user_id = ? AND approval_state = 'SCHEDULED' AND scheduled_for IS NOT NULL AND scheduled_for <= ?`
       )
-      .all(currentTimeIso) as Array<{
+      .all(ownerUserId, currentTimeIso) as Array<{
       id: string;
       owner_user_id: string;
       invoice_id: string;
@@ -3629,17 +3650,22 @@ export class InvoicePilotRepository {
     return { deleted: true, isDemo: false };
   }
 
-  public listWebhookEvents(limit = 50): WebhookEventDetailRecord[] {
+  public listWebhookEvents(ownerUserId: string, limit = 50): WebhookEventDetailRecord[] {
+    const query = validateWebhookEventQuery(ownerUserId, limit);
     const rows = this.db
       .prepare(
-        `SELECT id, provider_event_id, event_type, verification_status,
-                processing_status, related_provider_invoice_id, payload_hash,
-                received_at, processed_at
+        `SELECT webhook_events.id, webhook_events.provider_event_id, webhook_events.event_type,
+                webhook_events.verification_status, webhook_events.processing_status,
+                webhook_events.related_provider_invoice_id, webhook_events.payload_hash,
+                webhook_events.received_at, webhook_events.processed_at
          FROM webhook_events
-         ORDER BY received_at DESC
+         INNER JOIN invoices
+           ON invoices.provider_invoice_id = webhook_events.related_provider_invoice_id
+          AND invoices.owner_user_id = ?
+         ORDER BY webhook_events.received_at DESC
          LIMIT ?`
       )
-      .all(limit) as Array<{
+      .all(query.ownerUserId, query.limit) as Array<{
         id: string;
         provider_event_id: string;
         event_type: string;

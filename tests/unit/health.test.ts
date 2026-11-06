@@ -15,6 +15,15 @@ describe('Stage 01 — Server Config & Health Endpoint', () => {
     expect(config.paypalMode).toBe('mock');
   });
 
+  it('rejects mock PayPal mode in production', () => {
+    expect(() =>
+      loadAppConfig(
+        { PAYPAL_MODE: 'mock', APP_ENV: 'production' },
+        { loadDotEnvFile: false }
+      )
+    ).toThrow('PAYPAL_MODE=mock is not allowed when APP_ENV=production');
+  });
+
   it('rejects unsupported PAYPAL_MODE values (such as live)', () => {
     expect(() => loadAppConfig({ PAYPAL_MODE: 'live' }, { loadDotEnvFile: false })).toThrow(
       /Invalid PAYPAL_MODE/

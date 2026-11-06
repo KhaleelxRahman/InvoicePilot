@@ -363,7 +363,7 @@ describe('Stage 11 — Reminder Drafts, Client Tone & Observable Scheduling', ()
   });
 
   it('supports observable scheduled reminders and automated processing via process-scheduled', async () => {
-    const { app, repo } = createTestSetup();
+    const { app, repo, db } = createTestSetup();
 
     const regRes = await request(app)
       .post('/api/auth/register')
@@ -417,7 +417,7 @@ describe('Stage 11 — Reminder Drafts, Client Tone & Observable Scheduling', ()
     const beforeRes = await request(app)
       .post('/api/reminders/process-scheduled')
       .set('Authorization', `Bearer ${token}`)
-      .send({ currentTimeIso: new Date(Date.now() - 3600000).toISOString() });
+      .send({ currentTimeIso: new Date(futureMs + 86400000).toISOString() });
     expect(beforeRes.status).toBe(200);
     expect(beforeRes.body.results.length).toBe(0);
 
@@ -427,7 +427,11 @@ describe('Stage 11 — Reminder Drafts, Client Tone & Observable Scheduling', ()
       .set('Authorization', `Bearer ${token}`);
     expect(check1.body.reminder.approvalState).toBe('SCHEDULED');
 
-    // 4. Process scheduled at or after the target time -> 1 processed
+    // Make the reminder due using the test database, not a client-supplied clock.
+    const pastIso = new Date(Date.now() - 60000).toISOString();
+    db.prepare('UPDATE reminders SET scheduled_for = ? WHERE id = ?').run(pastIso, reminderId);
+
+    // 4. Process the now-due reminder -> 1 processed
     const dueRes = await request(app)
       .post('/api/reminders/process-scheduled')
       .set('Authorization', `Bearer ${token}`)
@@ -469,6 +473,7 @@ describe('Stage 11 — Reminder Drafts, Client Tone & Observable Scheduling', ()
         displayName: 'User B Corp'
       });
     const tokenB = userBRes.body.sessionToken;
+    const userBId = userBRes.body.user.id;
 
     const clientA = repo.createClient(userAId, {
       fullName: 'Client of User A',
@@ -503,5 +508,59 @@ describe('Stage 11 — Reminder Drafts, Client Tone & Observable Scheduling', ()
       .post(`/api/reminders/${reminderA.id}/send`)
       .set('Authorization', `Bearer ${tokenB}`);
     expect(sendRes.status).toBe(404);
+
+    // Create an overdue scheduled reminder owned by User B.
+    const clientB = repo.createClient(userBId, {
+      fullName: 'Client of User B',
+      email: 'b@example.com',
+      defaultCurrency: 'USD'
+    });
+
+    const invB = repo.createInvoiceDraft(userBId, {
+      clientId: clientB.id,
+      invoiceNumber: 'INV-USERB-SCHEDULED-01',
+      currencyCode: 'USD',
+      issueDate: '2026-10-01',
+      dueDate: '2026-10-15',
+      taxRateBps: 0,
+      items: [{ description: 'Work', quantity: 1, unitAmountMinor: 60000 }]
+    });
+
+    const overdueTime = new Date(Date.now() - 60000).toISOString();
+    const reminderBDraft = await request(app)
+      .post(`/api/invoices/${invB.id}/reminders/draft`)
+      .set('Authorization', `Bearer ${tokenB}`)
+      .send({
+        tone: 'polite',
+        scheduledFor: overdueTime
+      });
+
+    expect(reminderBDraft.status).toBe(201);
+
+    const reminderBId = reminderBDraft.body.reminder.id;
+    const approveB = await request(app)
+      .post(`/api/reminders/${reminderBId}/approve`)
+      .set('Authorization', `Bearer ${tokenB}`)
+      .send({});
+
+    expect(approveB.status).toBe(200);
+    expect(approveB.body.reminder.approvalState).toBe('APPROVED');
+
+    // User A's scheduler must not process User B's overdue reminder.
+    const processAsA = await request(app)
+      .post('/api/reminders/process-scheduled')
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send({});
+
+    expect(processAsA.status).toBe(200);
+    expect(processAsA.body.results).toHaveLength(0);
+
+    const reminderBCheck = await request(app)
+      .get(`/api/reminders/${reminderBId}`)
+      .set('Authorization', `Bearer ${tokenB}`);
+
+    expect(reminderBCheck.status).toBe(200);
+    expect(reminderBCheck.body.reminder.approvalState).toBe('APPROVED');
+    expect(reminderBCheck.body.reminder.sentAt).toBeUndefined();
   });
 });
