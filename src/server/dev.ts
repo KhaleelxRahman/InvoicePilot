@@ -32,7 +32,7 @@ async function startDevServer() {
 
   app.use(vite.middlewares);
 
-  httpServer.listen(config.port, () => {
+  httpServer.listen(config.port, '0.0.0.0', () => {
     console.log(
       `[InvoicePilot] Stage 1 server listening on ${config.appBaseUrl} (PAYPAL_MODE=${config.paypalMode})`
     );

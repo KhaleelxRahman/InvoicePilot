@@ -19,7 +19,7 @@ app.get('*', (_req, res) => {
   res.sendFile(path.join(clientDistDir, 'index.html'));
 });
 
-app.listen(config.port, () => {
+app.listen(config.port, '0.0.0.0', () => {
   console.log(
     `[InvoicePilot] Production server listening on ${config.appBaseUrl} (PAYPAL_MODE=${config.paypalMode})`
   );

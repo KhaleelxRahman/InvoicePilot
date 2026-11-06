@@ -393,12 +393,15 @@ export function createApiApp(
   // HTTP Security Headers & Content Security Policy
   app.use((_req: Request, res: Response, next: NextFunction) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'DENY');
+    if (config.appEnv === 'production') {
+      res.setHeader('X-Frame-Options', 'DENY');
+    }
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    const frameAncestors = config.appEnv === 'production' ? "'none'" : "*";
     res.setHeader(
       'Content-Security-Policy',
-      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://api-m.sandbox.paypal.com https://api.sandbox.paypal.com https://generativelanguage.googleapis.com; frame-ancestors 'none';"
+      `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://api-m.sandbox.paypal.com https://api.sandbox.paypal.com https://generativelanguage.googleapis.com; frame-ancestors ${frameAncestors};`
     );
     if (config.appEnv === 'production') {
       res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
@@ -436,7 +439,12 @@ export function createApiApp(
       try {
         const parsed = new URL(origin);
         const originNormalized = `${parsed.protocol}//${parsed.host}`;
-        isAllowed = allowedOrigins.includes(originNormalized);
+        const isCloudRunOrGoogle =
+          parsed.hostname.endsWith('.run.app') ||
+          parsed.hostname.endsWith('.google.com') ||
+          parsed.hostname.endsWith('.web.app') ||
+          parsed.hostname.endsWith('.firebaseapp.com');
+        isAllowed = allowedOrigins.includes(originNormalized) || isCloudRunOrGoogle;
       } catch {
         isAllowed = false;
       }

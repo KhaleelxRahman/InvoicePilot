@@ -1,0 +1,8 @@
+{
+  "name": "InvoicePilot — Financial Workspace",
+  "description": "AI-assisted invoicing and payment management workspace for freelancers, consultants, and small service businesses.",
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ],
+  "permissions": []
+}
