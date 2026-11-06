@@ -1285,16 +1285,51 @@ export class AsyncInvoicePilotRepository {
 
     const warnings: string[] = [];
     if (providerMode === 'mock') {
-      warnings.push('Isolated Mock Mode active: execution will NOT contact PayPal.');
+      warnings.push(
+        'Isolated Mock Mode active: execution creates a simulated local record (MOCK-LOCAL-...) and will NOT contact PayPal.'
+      );
     } else {
-      warnings.push('PayPal Sandbox Mode active: execution will create a Sandbox invoice.');
+      warnings.push(
+        'PayPal Sandbox Mode active: execution will create and send a Sandbox invoice via api-m.sandbox.paypal.com (no real money).'
+      );
     }
 
     if (settings && invoice.totalMinor >= Math.round(settings.maxInvoiceAmountMinor * 0.8)) {
-      warnings.push('High-value invoice: total is at or above 80% of configured cap.');
+      warnings.push(
+        `High-value invoice: total (${invoice.totalMinor} minor units) is at or above 80% of your configured safety cap (${settings.maxInvoiceAmountMinor} minor units).`
+      );
     }
 
-    const whatWillHappen = `Approving and executing this slip authorizes the server to create and transmit invoice ${invoice.invoiceNumber} to ${client.fullName} (${client.email}).`;
+    if (invoice.taxRateBps === 0) {
+      warnings.push('Zero tax rate (0.00%) applied on this invoice.');
+    }
+
+    const whatWillHappen =
+      providerMode === 'sandbox'
+        ? `Approving and executing this slip authorizes the server to create a PayPal Sandbox invoice for ${client.fullName} (${client.email}) and transmit it via PayPal Invoicing v2 Sandbox API.`
+        : `Approving and executing this slip authorizes the server to simulate sending this invoice to ${client.fullName} (${client.email}) in Isolated Mock Mode without external network calls.`;
+
+    const canonicalObject = {
+      invoiceId: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      clientId: client.id,
+      clientEmail: client.email,
+      currencyCode: invoice.currencyCode,
+      subtotalMinor: invoice.subtotalMinor,
+      taxRateBps: invoice.taxRateBps,
+      taxMinor: invoice.taxMinor,
+      totalMinor: invoice.totalMinor,
+      issueDate: invoice.issueDate,
+      dueDate: invoice.dueDate,
+      notes: invoice.notes ?? '',
+      items: invoice.items.map((it) => ({
+        description: it.description,
+        quantity: it.quantity,
+        unitAmountMinor: it.unitAmountMinor,
+        lineTotalMinor: it.lineTotalMinor,
+        currencyCode: it.currencyCode
+      }))
+    };
 
     const slip: ApprovalSlipPayload = {
       invoiceId: invoice.id,
@@ -1323,46 +1358,199 @@ export class AsyncInvoicePilotRepository {
       whatWillHappen
     };
 
-    const canonicalHash = crypto.createHash('sha256').update(JSON.stringify(slip)).digest('hex');
+    const canonicalHash = crypto
+      .createHash('sha256')
+      .update(JSON.stringify(canonicalObject))
+      .digest('hex');
     return { slip, canonicalHash };
+  }
+
+  private async assertInvoiceValidForApprovalOrExecution(
+    ownerUserId: string,
+    invoice: InvoiceRecord,
+    actionIdForLog?: string,
+    correlationId?: string
+  ): Promise<void> {
+    validateSupportedCurrency(invoice.currencyCode);
+    if (!isValidIsoCalendarDate(invoice.issueDate) || !isValidIsoCalendarDate(invoice.dueDate)) {
+      throw new OwnershipOrValidationError('VALIDATION_ERROR', 'Invoice dates are invalid.');
+    }
+    if (invoice.dueDate < invoice.issueDate) {
+      throw new OwnershipOrValidationError(
+        'VALIDATION_ERROR',
+        'Invoice due date must be on or after the issue date.'
+      );
+    }
+    if (!invoice.items || invoice.items.length === 0 || invoice.totalMinor <= 0) {
+      throw new OwnershipOrValidationError(
+        'VALIDATION_ERROR',
+        'Invoice must contain at least one positive line item.'
+      );
+    }
+
+    const settings = await this.getSettings(ownerUserId);
+    if (settings && invoice.totalMinor > settings.maxInvoiceAmountMinor) {
+      if (actionIdForLog) {
+        const now = new Date().toISOString();
+        await this.db
+          .prepare(
+            `UPDATE pending_actions SET state = 'FAILED', failure_reason = ?, updated_at = ?
+             WHERE id = ? AND owner_user_id = ?`
+          )
+          .run('Invoice exceeds configured safety limit.', now, actionIdForLog, ownerUserId);
+      }
+      await this.appendActivityLog(ownerUserId, {
+        actorType: 'system',
+        action: 'ACTION_BLOCKED_OVER_LIMIT',
+        entityType: 'invoice',
+        entityId: invoice.id,
+        result: 'FAILED',
+        detail: {
+          actionId: actionIdForLog,
+          totalMinor: invoice.totalMinor,
+          maxInvoiceAmountMinor: settings.maxInvoiceAmountMinor
+        },
+        correlationId
+      });
+      throw new OwnershipOrValidationError(
+        'VALIDATION_ERROR',
+        `Invoice total (${invoice.totalMinor} minor units) exceeds the configured safety limit (${settings.maxInvoiceAmountMinor} minor units).`
+      );
+    }
   }
 
   public async requestInvoiceSendApproval(
     ownerUserId: string,
     invoiceId: string,
-    options?: { requestedBy?: 'user' | 'agent'; idempotencyKey?: string }
+    options?: {
+      providerMode?: PayPalMode;
+      expiresAt?: string;
+      correlationId?: string;
+      requestedBy?: 'user' | 'agent';
+      idempotencyKey?: string;
+    }
   ): Promise<{ action: PendingActionRecord; slip: ApprovalSlipPayload }> {
     const invoice = await this.getInvoiceForOwner(ownerUserId, invoiceId);
+    if (
+      invoice.localStatus === 'SENT' ||
+      (invoice.providerInvoiceId &&
+        invoice.providerStatus !== 'NONE' &&
+        invoice.providerStatus !== 'DRAFT')
+    ) {
+      throw new OwnershipOrValidationError(
+        'VALIDATION_ERROR',
+        'Invoice has already been sent and cannot be queued for send approval again.'
+      );
+    }
+    if (invoice.localStatus === 'CANCELLED') {
+      throw new OwnershipOrValidationError(
+        'VALIDATION_ERROR',
+        'Cancelled invoices cannot be queued for approval.'
+      );
+    }
+
+    await this.assertInvoiceValidForApprovalOrExecution(
+      ownerUserId,
+      invoice,
+      undefined,
+      options?.correlationId
+    );
+
+    const providerMode = options?.providerMode ?? invoice.providerMode ?? 'sandbox';
     const { slip, canonicalHash } = await this.buildApprovalSlipPayload(
       ownerUserId,
       invoiceId,
-      invoice.providerMode
+      providerMode
     );
-    const now = new Date();
+
+    // Check if an identical unexpired PENDING_APPROVAL action already exists (when no custom expiresAt is requested)
+    if (!options?.expiresAt) {
+      const existingActions = await this.listPendingActionsForOwner(ownerUserId, invoiceId);
+      const matchingActive = existingActions.find((a) => {
+        if (
+          a.actionType !== 'SEND_INVOICE' ||
+          a.state !== 'PENDING_APPROVAL' ||
+          a.payloadHash !== canonicalHash ||
+          Date.parse(a.expiresAt) <= Date.now()
+        ) {
+          return false;
+        }
+        try {
+          const parsed = JSON.parse(a.payloadJson) as { providerMode?: string };
+          if (parsed.providerMode && parsed.providerMode !== providerMode) {
+            return false;
+          }
+        } catch {
+          // Ignore JSON parse error
+        }
+        return true;
+      });
+      if (matchingActive) {
+        return { action: matchingActive, slip };
+      }
+    }
+
+    const now = new Date().toISOString();
     const actionId = `act_${crypto.randomUUID()}`;
-    const expiresAt = new Date(now.getTime() + 24 * 3600 * 1000).toISOString();
+    const expiresAt =
+      options?.expiresAt ?? new Date(Date.now() + 30 * 60 * 1000).toISOString();
     const payloadJson = JSON.stringify(slip);
+    const idempotencyKey = options?.idempotencyKey ?? `idem_${crypto.randomUUID()}`;
 
-    await this.db
-      .prepare(
-        `INSERT INTO pending_actions (id, owner_user_id, action_type, target_invoice_id,
-                                     state, payload_json, payload_hash, idempotency_key, expires_at, created_at, updated_at)
-         VALUES (?, ?, 'SEND_INVOICE', ?, 'PENDING_APPROVAL', CAST(? AS JSONB), ?, ?, ?, ?, ?)`
-      )
-      .run(
-        actionId,
-        ownerUserId,
-        invoice.id,
-        payloadJson,
-        canonicalHash,
-        options?.idempotencyKey ?? `send_${invoiceId}_${Date.now()}`,
-        expiresAt,
-        now.toISOString(),
-        now.toISOString()
-      );
+    return await this.withTransaction(async () => {
+      // Cancel any older open actions for this invoice
+      await this.db
+        .prepare(
+          `UPDATE pending_actions
+           SET state = 'CANCELLED', failure_reason = 'Superseded by newer approval slip', updated_at = ?
+           WHERE owner_user_id = ? AND target_invoice_id = ? AND state IN ('DRAFTED', 'PENDING_APPROVAL', 'APPROVED')`
+        )
+        .run(now, ownerUserId, invoiceId);
 
-    const action = await this.getPendingActionForOwner(ownerUserId, actionId);
-    return { action, slip };
+      await this.db
+        .prepare(
+          `INSERT INTO pending_actions (id, owner_user_id, action_type, target_invoice_id,
+                                       state, payload_json, payload_hash, idempotency_key, expires_at, created_at, updated_at)
+           VALUES (?, ?, 'SEND_INVOICE', ?, 'PENDING_APPROVAL', CAST(? AS JSONB), ?, ?, ?, ?, ?)`
+        )
+        .run(
+          actionId,
+          ownerUserId,
+          invoice.id,
+          payloadJson,
+          canonicalHash,
+          idempotencyKey,
+          expiresAt,
+          now,
+          now
+        );
+
+      await this.db
+        .prepare(
+          `UPDATE invoices SET local_status = 'PENDING_APPROVAL', updated_at = ?
+           WHERE id = ? AND owner_user_id = ?`
+        )
+        .run(now, invoice.id, ownerUserId);
+
+      await this.appendActivityLog(ownerUserId, {
+        actorType: options?.requestedBy === 'agent' ? 'agent' : 'user',
+        action: 'ACTION_PROPOSED_FOR_APPROVAL',
+        entityType: 'pending_action',
+        entityId: actionId,
+        result: 'PROPOSED',
+        detail: {
+          invoiceId,
+          invoiceNumber: invoice.invoiceNumber,
+          totalMinor: invoice.totalMinor,
+          currencyCode: invoice.currencyCode,
+          providerMode
+        },
+        correlationId: options?.correlationId
+      });
+
+      const action = await this.getPendingActionForOwner(ownerUserId, actionId);
+      return { action, slip };
+    });
   }
 
   public async getPendingActionForOwner(

@@ -93,14 +93,14 @@ Configure the PayPal Sandbox Webhook in the PayPal Developer Dashboard:
 
 - **Release Date**: 2026-11-05
 - **Target Git Branch**: `main`
-- **Verified Production URL**: [https://inquisitive-biscochitos-83e042.netlify.app/](https://inquisitive-biscochitos-83e042.netlify.app/)
-- **Live Health Endpoint**: [https://inquisitive-biscochitos-83e042.netlify.app/api/health](https://inquisitive-biscochitos-83e042.netlify.app/api/health)
-- **Deployment Platform**: Netlify (Vite Static SPA + Netlify Serverless Functions via `serverless-http`)
+- **Verified Production URL**: [https://invoicepilot-beryl.vercel.app](https://invoicepilot-beryl.vercel.app)
+- **Live Health Endpoint**: [https://invoicepilot-beryl.vercel.app/api/health](https://invoicepilot-beryl.vercel.app/api/health)
+- **Deployment Platform**: Vercel (Vite Static SPA + Vercel Serverless Functions via `api/index.ts`)
 - **Cloud Database Engine**: Supabase Managed PostgreSQL (`postgresql-supabase`, transaction pooler port 6543, SSL required)
 - **Local Fallback Database Engine**: Node.js built-in `node:sqlite` (`DatabaseSync`) for offline tests and development
 - **Production Build Status**: Verified (`vite build && tsc -p tsconfig.server.json` passing with 0 errors)
 - **Automated Test Evidence**:
-  - Unit & Integration: **128 / 128 Passed** across 19 suites (Vitest 3)
+  - Unit & Integration: **139 / 139 Passed** across 20 suites (Vitest)
   - Playwright E2E: **36 / 36 Passed** across `desktop-chromium` (1280x800) and `mobile-360` (360x780)
   - Responsive Viewport Audits: **1440x900** and **390x844** verified with **0 horizontal overflow**
 - **Security & Authentication Verification**:

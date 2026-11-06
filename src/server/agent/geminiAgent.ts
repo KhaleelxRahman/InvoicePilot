@@ -15,7 +15,11 @@ import {
   type ReminderTone
 } from '../db/repository.js';
 import type { PayPalMode } from '../config.js';
-import type { GroundedFinancialInsights } from '../insights/cashFlowInsights.js';
+import type { AsyncInvoicePilotRepository } from '../db/asyncRepository.js';
+import {
+  addCalendarDays,
+  type GroundedFinancialInsights
+} from '../insights/cashFlowInsights.js';
 
 function redactSecretsInText(input: string, secrets: string[]): string {
   let out = input;
@@ -343,7 +347,7 @@ export class GeminiInvoiceAgent {
   private readonly processedIdempotencyKeys = new Map<string, AgentExecutionResponse>();
 
   public constructor(
-    private readonly repo: InvoicePilotRepository,
+    private readonly repo: InvoicePilotRepository | AsyncInvoicePilotRepository,
     config: GeminiAgentConfig
   ) {
     this.apiKey = (config.apiKey ?? '').trim();
@@ -361,11 +365,11 @@ export class GeminiInvoiceAgent {
     return this.apiKey.length > 0;
   }
 
-  private resolveAuthorizedClient(
+  private async resolveAuthorizedClient(
     ownerUserId: string,
     clientReference: string
-  ): { match?: ClientRecord; candidates: ClientRecord[]; ambiguous: boolean } {
-    const ownedClients = this.repo.listClientsForOwner(ownerUserId);
+  ): Promise<{ match?: ClientRecord; candidates: ClientRecord[]; ambiguous: boolean }> {
+    const ownedClients = await this.repo.listClientsForOwner(ownerUserId);
     const ref = clientReference.trim().toLowerCase();
     if (!ref) {
       return { candidates: ownedClients, ambiguous: false };
@@ -402,19 +406,19 @@ export class GeminiInvoiceAgent {
     return { candidates: ownedClients, ambiguous: false };
   }
 
-  private resolveAuthorizedInvoice(
+  private async resolveAuthorizedInvoice(
     ownerUserId: string,
     invoiceReference: string
-  ): InvoiceRecord | null {
+  ): Promise<InvoiceRecord | null> {
     const ref = invoiceReference.trim();
     if (!ref) return null;
 
     // If reference looks like an invoice ID (`inv_...`), call getInvoiceForOwner directly so cross-owner IDs throw 403 FORBIDDEN_OWNER_MISMATCH!
     if (ref.startsWith('inv_')) {
-      return this.repo.getInvoiceForOwner(ownerUserId, ref);
+      return await this.repo.getInvoiceForOwner(ownerUserId, ref);
     }
 
-    const ownedInvoices = this.repo.listInvoicesForOwner(ownerUserId);
+    const ownedInvoices = await this.repo.listInvoicesForOwner(ownerUserId);
     const byNumber = ownedInvoices.find(
       (inv) => inv.invoiceNumber.toLowerCase() === ref.toLowerCase()
     );
@@ -423,7 +427,7 @@ export class GeminiInvoiceAgent {
     }
 
     // Otherwise try getInvoiceForOwner which enforces 403 vs 404
-    return this.repo.getInvoiceForOwner(ownerUserId, ref);
+    return await this.repo.getInvoiceForOwner(ownerUserId, ref);
   }
 
   private buildSystemInstruction(
@@ -524,6 +528,13 @@ export class GeminiInvoiceAgent {
       if (!response.ok) {
         const errBody = await response.text().catch(() => '');
         const safeErr = redactSecretsInText(errBody, [this.apiKey]).slice(0, 240);
+        if (response.status === 429) {
+          throw new Error(
+            `GEMINI_RATE_LIMITED: Gemini API rate limit or quota exceeded (HTTP 429)${
+              safeErr ? ` (${safeErr})` : ''
+            }`
+          );
+        }
         throw new Error(
           `GEMINI_HTTP_ERROR: Gemini API responded with HTTP ${response.status}${
             safeErr ? ` (${safeErr})` : ''
@@ -663,7 +674,7 @@ export class GeminiInvoiceAgent {
 
     // Duplicate request / idempotency check
     if (input.idempotencyKey && this.processedIdempotencyKeys.has(input.idempotencyKey)) {
-      this.repo.appendActivityLog(ownerUserId, {
+      await this.repo.appendActivityLog(ownerUserId, {
         actorType: 'agent',
         action: 'AGENT_DUPLICATE_TOOL_CALL_BLOCKED',
         entityType: 'agent_turn',
@@ -704,7 +715,7 @@ export class GeminiInvoiceAgent {
       ) &&
       !/\b(draft|prepare|create|invoice\s+for)\b/i.test(trimmedPrompt)
     ) {
-      this.repo.appendActivityLog(ownerUserId, {
+      await this.repo.appendActivityLog(ownerUserId, {
         actorType: 'agent',
         action: 'AGENT_SAFETY_BLOCKED',
         entityType: 'agent_turn',
@@ -731,11 +742,12 @@ export class GeminiInvoiceAgent {
       };
     }
 
-    const ownedClients = this.repo.listClientsForOwner(ownerUserId);
-    const ownedInvoices = this.repo.listInvoicesForOwner(ownerUserId);
-    const settings = this.repo.getSettings(ownerUserId);
+    const ownedClients = await this.repo.listClientsForOwner(ownerUserId);
+    const ownedInvoices = await this.repo.listInvoicesForOwner(ownerUserId);
+    const settings = await this.repo.getSettings(ownerUserId);
     const maxAmountMinor = settings?.maxInvoiceAmountMinor ?? 1_000_000;
     const defaultCurrency = settings?.defaultCurrency ?? 'USD';
+    const defaultPaymentTermsDays = settings?.defaultPaymentTermsDays ?? 14;
 
     let callResult: {
       rawEnvelope: unknown;
@@ -760,7 +772,7 @@ export class GeminiInvoiceAgent {
           trimmedPrompt
         )
       ) {
-        const insights = this.repo.getGroundedInsights(ownerUserId);
+        const insights = await this.repo.getGroundedInsights(ownerUserId);
         return {
           ok: true,
           status: 'FINANCIAL_INSIGHTS_RETRIEVED',
@@ -778,7 +790,7 @@ export class GeminiInvoiceAgent {
         };
       }
 
-      this.repo.appendActivityLog(ownerUserId, {
+      await this.repo.appendActivityLog(ownerUserId, {
         actorType: 'agent',
         action: 'AGENT_MODEL_ERROR',
         entityType: 'agent_turn',
@@ -787,11 +799,19 @@ export class GeminiInvoiceAgent {
         detail: { error: safeMessage },
         correlationId: input.correlationId
       });
+
+      const errorAssistantMessage = safeMessage.startsWith('GEMINI_UNAVAILABLE:')
+        ? 'Gemini structured agent is not configured on the server (GEMINI_API_KEY is missing). Your conventional invoice form remains ready so you can create or edit drafts without interruption.'
+        : safeMessage.startsWith('GEMINI_RATE_LIMITED:')
+          ? 'Gemini API rate limit or quota was exceeded (HTTP 429). Please wait a moment and retry, or use the conventional invoice form.'
+          : safeMessage.startsWith('GEMINI_TIMEOUT:')
+            ? 'Gemini structured agent timed out before completing the request. Please retry or use the conventional invoice form.'
+            : 'Gemini structured agent is currently unavailable or returned an invalid response. Your conventional invoice form remains ready so you can create or edit drafts without interruption.';
+
       return {
         ok: false,
         status: 'AGENT_ERROR',
-        assistantMessage:
-          'Gemini structured agent is currently unavailable or returned an invalid response. Your conventional invoice form remains ready so you can create or edit drafts without interruption.',
+        assistantMessage: errorAssistantMessage,
         validationExplanation: safeMessage,
         safetyWarnings,
         fallbackToConventionalForm: true,
@@ -805,7 +825,7 @@ export class GeminiInvoiceAgent {
 
     // Block duplicate tool calls emitted in a single turn
     if (callResult.duplicateToolCallCount > 1) {
-      this.repo.appendActivityLog(ownerUserId, {
+      await this.repo.appendActivityLog(ownerUserId, {
         actorType: 'agent',
         action: 'AGENT_DUPLICATE_TOOL_CALL_BLOCKED',
         entityType: 'agent_turn',
@@ -834,7 +854,7 @@ export class GeminiInvoiceAgent {
 
     // Block unauthorized tool names (e.g., send_approved_invoice)
     if (callResult.unauthorizedToolAttempt) {
-      this.repo.appendActivityLog(ownerUserId, {
+      await this.repo.appendActivityLog(ownerUserId, {
         actorType: 'agent',
         action: 'AGENT_SAFETY_BLOCKED',
         entityType: 'agent_turn',
@@ -862,7 +882,7 @@ export class GeminiInvoiceAgent {
 
     const parsedEnvelope = StructuredModelEnvelopeSchema.safeParse(callResult.rawEnvelope);
     if (!parsedEnvelope.success) {
-      this.repo.appendActivityLog(ownerUserId, {
+      await this.repo.appendActivityLog(ownerUserId, {
         actorType: 'agent',
         action: 'AGENT_SCHEMA_VALIDATION_FAILED',
         entityType: 'agent_turn',
@@ -890,12 +910,13 @@ export class GeminiInvoiceAgent {
     }
 
     const envelope = parsedEnvelope.data;
-    const response = this.executeValidatedEnvelope(
+    const response = await this.executeValidatedEnvelope(
       ownerUserId,
       envelope,
       safetyWarnings,
       maxAmountMinor,
       defaultCurrency,
+      defaultPaymentTermsDays,
       input.correlationId
     );
 
@@ -906,14 +927,15 @@ export class GeminiInvoiceAgent {
     return response;
   }
 
-  private executeValidatedEnvelope(
+  private async executeValidatedEnvelope(
     ownerUserId: string,
     envelope: StructuredModelEnvelope,
     safetyWarnings: string[],
     maxAmountMinor: number,
     defaultCurrency: string,
+    defaultPaymentTermsDays: number,
     correlationId?: string
-  ): AgentExecutionResponse {
+  ): Promise<AgentExecutionResponse> {
     const modelMetadata = {
       provider: 'gemini' as const,
       model: this.model,
@@ -969,14 +991,14 @@ export class GeminiInvoiceAgent {
         };
       }
 
-      const invoice = this.resolveAuthorizedInvoice(ownerUserId, args.invoiceReference);
+      const invoice = await this.resolveAuthorizedInvoice(ownerUserId, args.invoiceReference);
       if (!invoice) {
         throw new OwnershipOrValidationError(
           'NOT_FOUND',
           `Invoice "${args.invoiceReference}" was not found in your workspace.`
         );
       }
-      const client = this.repo.getClientForOwner(ownerUserId, invoice.clientId);
+      const client = await this.repo.getClientForOwner(ownerUserId, invoice.clientId);
 
       // Guard against unsupported financial claims in model assistantMessage
       let safeMessage = envelope.assistantMessage;
@@ -990,7 +1012,7 @@ export class GeminiInvoiceAgent {
         )} ${invoice.currencyCode}, local status ${invoice.localStatus}, and provider status ${invoice.providerStatus}.`;
       }
 
-      this.repo.appendActivityLog(ownerUserId, {
+      await this.repo.appendActivityLog(ownerUserId, {
         actorType: 'agent',
         action: 'AGENT_INVOICE_DETAILS_RETRIEVED',
         entityType: 'invoice',
@@ -1029,7 +1051,7 @@ export class GeminiInvoiceAgent {
         };
       }
 
-      const invoice = this.resolveAuthorizedInvoice(ownerUserId, args.invoiceReference);
+      const invoice = await this.resolveAuthorizedInvoice(ownerUserId, args.invoiceReference);
       if (!invoice) {
         throw new OwnershipOrValidationError(
           'NOT_FOUND',
@@ -1037,12 +1059,12 @@ export class GeminiInvoiceAgent {
         );
       }
 
-      const { action, slip } = this.repo.requestInvoiceSendApproval(ownerUserId, invoice.id, {
+      const { action, slip } = await this.repo.requestInvoiceSendApproval(ownerUserId, invoice.id, {
         providerMode: this.providerMode,
         correlationId
       });
-      const updatedInvoice = this.repo.getInvoiceForOwner(ownerUserId, invoice.id);
-      const client = this.repo.getClientForOwner(ownerUserId, invoice.clientId);
+      const updatedInvoice = await this.repo.getInvoiceForOwner(ownerUserId, invoice.id);
+      const client = await this.repo.getClientForOwner(ownerUserId, invoice.clientId);
 
       let safeMessage = envelope.assistantMessage;
       if (hasUnsupportedFinancialClaim(safeMessage, updatedInvoice)) {
@@ -1071,9 +1093,9 @@ export class GeminiInvoiceAgent {
       const args = envelope.getFinancialInsightsArgs;
       const asOfDate =
         args?.asOfDate && isValidIsoCalendarDate(args.asOfDate) ? args.asOfDate : undefined;
-      const insights = this.repo.getGroundedInsights(ownerUserId, asOfDate);
+      const insights = await this.repo.getGroundedInsights(ownerUserId, asOfDate);
 
-      this.repo.appendActivityLog(ownerUserId, {
+      await this.repo.appendActivityLog(ownerUserId, {
         actorType: 'agent',
         action: 'AGENT_INSIGHTS_RETRIEVED',
         entityType: 'financial_insights',
@@ -1133,7 +1155,7 @@ export class GeminiInvoiceAgent {
     }
 
     // 2. Resolve client strictly from authorized stored clients
-    const clientResolution = this.resolveAuthorizedClient(ownerUserId, args.clientReference);
+    const clientResolution = await this.resolveAuthorizedClient(ownerUserId, args.clientReference);
     if (!clientResolution.match) {
       const availableNames = clientResolution.candidates
         .map((c) => `${c.fullName} (${c.email})`)
@@ -1144,7 +1166,7 @@ export class GeminiInvoiceAgent {
             availableNames || 'none'
           }). Which existing client should I use, or would you like to add them in the Clients tab first?`;
 
-      this.repo.appendActivityLog(ownerUserId, {
+      await this.repo.appendActivityLog(ownerUserId, {
         actorType: 'agent',
         action: 'AGENT_CLIENT_RESOLUTION_CLARIFICATION',
         entityType: 'client',
@@ -1202,10 +1224,17 @@ export class GeminiInvoiceAgent {
       };
     }
 
-    // 4. Validate issueDate and dueDate
-    const todayIso = '2026-10-31';
+    // 4. Validate issueDate and dueDate (dynamic UTC defaults respecting defaultPaymentTermsDays)
+    const todayIso = new Date().toISOString().slice(0, 10);
     const issueDate = (args.issueDate ?? todayIso).trim();
-    const dueDate = (args.dueDate ?? '2026-11-14').trim();
+    const safeTermsDays =
+      Number.isInteger(defaultPaymentTermsDays) && defaultPaymentTermsDays >= 0
+        ? defaultPaymentTermsDays
+        : 14;
+    const defaultDueIso = isValidIsoCalendarDate(issueDate)
+      ? addCalendarDays(issueDate, safeTermsDays)
+      : addCalendarDays(todayIso, safeTermsDays);
+    const dueDate = (args.dueDate ?? defaultDueIso).trim();
 
     if (!isValidIsoCalendarDate(issueDate) || !isValidIsoCalendarDate(dueDate)) {
       return {
@@ -1354,7 +1383,7 @@ export class GeminiInvoiceAgent {
       const formattedTotal = `${formatMinorUnitsToDecimal(totalMinor, rawCurrency)} ${rawCurrency}`;
       const formattedCap = `${formatMinorUnitsToDecimal(maxAmountMinor, rawCurrency)} ${rawCurrency}`;
 
-      this.repo.appendActivityLog(ownerUserId, {
+      await this.repo.appendActivityLog(ownerUserId, {
         actorType: 'agent',
         action: 'AGENT_DRAFT_BLOCKED_OVER_LIMIT',
         entityType: 'client',
@@ -1395,7 +1424,7 @@ export class GeminiInvoiceAgent {
         ? args.invoiceNumber.trim().slice(0, 25)
         : `INV-AI-${Date.now().toString().slice(-6)}`;
 
-    const createdInvoice = this.repo.createInvoiceDraft(ownerUserId, {
+    const createdInvoice = await this.repo.createInvoiceDraft(ownerUserId, {
       clientId: client.id,
       invoiceNumber,
       currencyCode: rawCurrency,
@@ -1407,7 +1436,7 @@ export class GeminiInvoiceAgent {
       items: validatedItems
     });
 
-    this.repo.appendActivityLog(ownerUserId, {
+    await this.repo.appendActivityLog(ownerUserId, {
       actorType: 'agent',
       action: 'AGENT_DRAFT_PREPARED',
       entityType: 'invoice',

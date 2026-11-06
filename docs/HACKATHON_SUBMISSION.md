@@ -6,7 +6,7 @@
 - **Hackathon Track**: PayPal AI Hackathon
 - **Official Deadline**: November 13, 2026, 1:30 AM IST (Internal target: November 12, 2026)
 - **Repository**: [https://github.com/KhaleelxRahman/InvoicePilot](https://github.com/KhaleelxRahman/InvoicePilot)
-- **Live Deployed App**: [https://inquisitive-biscochitos-83e042.netlify.app/](https://inquisitive-biscochitos-83e042.netlify.app/)
+- **Live Deployed App**: [https://invoicepilot-beryl.vercel.app](https://invoicepilot-beryl.vercel.app)
 - **License**: MIT License ([LICENSE](LICENSE))
 - **Release Verification Date**: 2026-11-05
 
@@ -18,10 +18,10 @@
 |---|---|---|
 | **1. Official rules and deadline re-verified** | VERIFIED | Rules checked against Devpost submission criteria; deadline confirmed (Nov 13, 2026, 1:30 AM IST). |
 | **2. End-to-end PayPal Sandbox invoice flow** | VERIFIED | Tested on actual build: Live OAuth token exchange, Invoicing v2 draft create/send/retrieve, provider invoice ID persistence, buyer view URL, and webhook signature verification (`tests/unit/stage08PayPalEndToEnd.test.ts` 5/5 & `tests/e2e/stage08-paypal-status.spec.ts` 2/2). |
-| **3. AI model meaningfully integrated** | VERIFIED | Gemini API integrated with strict Zod structured outputs schema, stored client resolution, validation explanations, prompt-injection sanitization, and conventional form fallback (`tests/unit/stage07GeminiAgent.test.ts` 6/6 & `tests/e2e/stage07-gemini-agent.spec.ts` 2/2). |
+| **3. AI model meaningfully integrated** | VERIFIED | Gemini API integrated with strict Zod structured outputs schema, stored client resolution, validation explanations, prompt-injection sanitization, and conventional form fallback (`tests/unit/stage07GeminiAgent.test.ts` 8/8 & `tests/e2e/stage07-gemini-agent.spec.ts` 2/2). |
 | **4. Human approval gate demonstrated** | VERIFIED | Server-enforced state machine (`DRAFTED -> PENDING_APPROVAL -> APPROVED -> EXECUTING -> EXECUTED`); paper approval slip UI; discard/rejection safety; revalidation immediately before execution (`tests/unit/stage06Approval.test.ts` 6/6 & `tests/e2e/stage06-approval-slip.spec.ts` 2/2). |
 | **5. Feature description accurately reflects implementation** | VERIFIED | `README.md`, `docs/PRD.md`, and `docs/FEATURE_STATUS.md` reflect verified features; no live payment claims; mock vs. sandbox explicitly distinguished. |
-| **6. Functional demo & production deployment** | VERIFIED | Live on Netlify at `https://inquisitive-biscochitos-83e042.netlify.app/` backed by Supabase PostgreSQL; dedicated account registration/login; local setup instructions verified (`npm install`, `npm run db:migrate`, `npm run dev`, `npm run build`, `npm start`). |
+| **6. Functional demo & production deployment** | VERIFIED | Live on Vercel at `https://invoicepilot-beryl.vercel.app` backed by Supabase PostgreSQL; dedicated account registration/login; local setup instructions verified (`npm install`, `npm run db:migrate`, `npm run dev`, `npm run build`, `npm start`). |
 | **7. Public source repository & open-source license** | VERIFIED | Public repository configured; standard MIT License added to root [LICENSE](LICENSE) and `package.json` (`"license": "MIT"`). |
 | **8. Secret scan and Git history review** | VERIFIED | `.gitignore` excludes `.env`, `*.sqlite`, `.reticle/`, `data/`; secret scan verified zero hardcoded API keys or client secrets in tracked files or Git history. |
 | **9. Tools and usage disclosure** | VERIFIED | Disclosed in `README.md`, `docs/ARCHITECTURE.md`, `docs/MCP_INTEGRATION.md`, and `docs/DECISIONS_LOG.md`. |

@@ -7,7 +7,7 @@
 [![GitHub Repository](https://img.shields.io/badge/GitHub-KhaleelxRahman%2FInvoicePilot-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/KhaleelxRahman/InvoicePilot)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
 [![Playwright E2E](https://img.shields.io/badge/Playwright-36%2F36%20Passed-brightgreen.svg?style=for-the-badge&logo=playwright&logoColor=white)](tests/e2e)
-[![Vitest Suite](https://img.shields.io/badge/Vitest-135%2F135%20Passed-brightgreen.svg?style=for-the-badge&logo=vitest&logoColor=white)](tests/unit)
+[![Vitest Suite](https://img.shields.io/badge/Vitest-139%2F139%20Passed-brightgreen.svg?style=for-the-badge&logo=vitest&logoColor=white)](tests/unit)
 [![TypeScript 5.7](https://img.shields.io/badge/TypeScript-5.7-3178C6.svg?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Database: Supabase](https://img.shields.io/badge/Database-Supabase%20PostgreSQL-3ECF8E.svg?style=for-the-badge&logo=supabase&logoColor=white)](https://supabase.com/)
 
@@ -351,7 +351,7 @@ Run the full quality gate locally in PowerShell:
 # 1. TypeScript static typecheck
 npm run typecheck
 
-# 2. Unit & integration test suite (20 test files, 135 tests)
+# 2. Unit & integration test suite (20 test files, 139 tests)
 npm test
 
 # 3. Production client + server build
