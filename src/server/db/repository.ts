@@ -3801,4 +3801,49 @@ export class InvoicePilotRepository {
       );
     }
   }
+
+  private lastRateLimitCleanupMs = 0;
+
+  /**
+   * Consumes one token from a shared database-backed rate-limit bucket.
+   * Uses a single atomic INSERT ... ON CONFLICT DO UPDATE RETURNING statement
+   * so concurrent requests across serverless instances never lose increments
+   * or fail with unique constraint violations.
+   */
+  public consumeRateLimit(
+    key: string,
+    windowMs: number,
+    nowMs: number = Date.now()
+  ): { count: number; resetAt: number } {
+    return this.withTransaction(() => {
+      if (
+        this.lastRateLimitCleanupMs === 0 ||
+        nowMs - this.lastRateLimitCleanupMs >= windowMs ||
+        nowMs < this.lastRateLimitCleanupMs
+      ) {
+        this.lastRateLimitCleanupMs = nowMs;
+        this.db.prepare('DELETE FROM rate_limits WHERE reset_at < ?').run(nowMs);
+      }
+
+      const nextResetAt = nowMs + windowMs;
+      const row = this.db
+        .prepare(
+          `INSERT INTO rate_limits (key, count, reset_at)
+           VALUES (?, 1, ?)
+           ON CONFLICT (key) DO UPDATE SET
+             count = CASE WHEN rate_limits.reset_at < ? THEN 1 ELSE rate_limits.count + 1 END,
+             reset_at = CASE WHEN rate_limits.reset_at < ? THEN ? ELSE rate_limits.reset_at END
+           RETURNING count, reset_at`
+        )
+        .get(key, nextResetAt, nowMs, nowMs, nextResetAt) as {
+        count: number;
+        reset_at: number;
+      };
+
+      return {
+        count: Number(row.count),
+        resetAt: Number(row.reset_at)
+      };
+    });
+  }
 }

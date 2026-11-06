@@ -363,6 +363,14 @@ CREATE TABLE IF NOT EXISTS onboarding_progress (
   first_client_id TEXT REFERENCES clients(id) ON DELETE SET NULL,
   updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS rate_limits (
+  key TEXT PRIMARY KEY,
+  count INTEGER NOT NULL DEFAULT 1 CHECK (count >= 0),
+  reset_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_rate_limits_reset_at ON rate_limits(reset_at);
 `;
 
 /**
@@ -392,13 +400,14 @@ export function openAndMigrateDatabase(dbFilePath: string): any {
     return createRealPostgresDatabase(dbFilePath);
   }
 
-  const isNetlify = Boolean(
+  const isServerless = Boolean(
+    process.env.VERCEL ||
     process.env.NETLIFY === 'true' ||
     process.env.LAMBDA_TASK_ROOT ||
     process.env.AWS_LAMBDA_FUNCTION_NAME
   );
 
-  if (isNetlify && !isPostgresDatabaseUrl(dbFilePath)) {
+  if (isServerless && !isPostgresDatabaseUrl(dbFilePath)) {
     throw new Error(
       'SQLite database is not permitted in Netlify serverless functions. Supabase PostgreSQL connection string (DATABASE_URL) is required.'
     );

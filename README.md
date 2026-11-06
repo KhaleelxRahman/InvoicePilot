@@ -448,7 +448,7 @@ Expected healthy production response:
 ## 22. Known Limitations & Non-Goals
 
 - **Sandbox Only (MVP Non-Goal)**: Live money processing (`PAYPAL_MODE=live`) is intentionally disabled.
-- **Per-Isolate Serverless Rate Limiting**: `createInMemoryRateLimiter` uses an in-memory `Map` per serverless function instance; it mitigates single-instance bursts and credential stuffing within warm isolates rather than acting as a global distributed WAF.
+- **Distributed & Fail-Safe Rate Limiting**: `createInMemoryRateLimiter` shares rate-limit counters across serverless instances via the `rate_limits` database table (`InvoicePilotRepository.consumeRateLimit` / `AsyncInvoicePilotRepository.consumeRateLimit`) when `rate_limits` is migrated, and automatically falls back to per-isolate in-memory rate limiting if the database table is not yet migrated or temporarily unreachable (never failing open).
 - **Scheduled Reminders Trigger**: Due scheduled reminders are dispatched when `POST /api/reminders/process-scheduled` is invoked (via UI or external cron trigger) rather than an always-on background worker process.
 
 ---

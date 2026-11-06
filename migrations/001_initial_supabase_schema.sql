@@ -263,6 +263,14 @@ CREATE TABLE IF NOT EXISTS onboarding_progress (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS rate_limits (
+  key TEXT PRIMARY KEY,
+  count INTEGER NOT NULL DEFAULT 1 CHECK (count >= 0),
+  reset_at BIGINT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_rate_limits_reset_at ON rate_limits(reset_at);
+
 -- Record schema migration 001
 INSERT INTO schema_migrations (version, name, applied_at)
 VALUES (1, '001_initial_supabase_schema', NOW())

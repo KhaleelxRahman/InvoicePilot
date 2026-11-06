@@ -42,6 +42,13 @@ export async function runSupabaseMigration(databaseUrl?: string): Promise<{ succ
       await client.query(sql3);
     }
 
+    const sqlPath4 = path.resolve(process.cwd(), 'migrations/004_rate_limits.sql');
+    if (fs.existsSync(sqlPath4)) {
+      console.log('[Supabase Migration] Applying Migration 004 (distributed rate_limits table)...');
+      const sql4 = fs.readFileSync(sqlPath4, 'utf-8');
+      await client.query(sql4);
+    }
+
     const res = await client.query(`
       SELECT table_name
       FROM information_schema.tables

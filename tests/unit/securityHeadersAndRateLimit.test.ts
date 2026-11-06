@@ -4,10 +4,13 @@ import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { newDb, DataType } from 'pg-mem';
 import { createApiApp, createInMemoryRateLimiter } from '../../src/server/app.js';
 import { loadAppConfig } from '../../src/server/config.js';
 import { openAndMigrateDatabase } from '../../src/server/db/schema.js';
 import { DEMO_TENANT_USER_ID, InvoicePilotRepository } from '../../src/server/db/repository.js';
+import { AsyncInvoicePilotRepository } from '../../src/server/db/asyncRepository.js';
+import { PostgresPoolAdapter } from '../../src/server/db/postgresPoolAdapter.js';
 import { createPayPalAdapter } from '../../src/server/paypal/adapter.js';
 
 describe('Security Headers, CORS, Rate Limiting & Proxy Trust', () => {
@@ -192,6 +195,150 @@ describe('Security Headers, CORS, Rate Limiting & Proxy Trust', () => {
     expect(prodOriginRes.headers['access-control-allow-origin']).toBe(
       'https://invoicepilot-beryl.vercel.app'
     );
+  });
+
+  it('enforces distributed rate limiting across independent serverless app instances sharing a database and falls back safely on store failure', async () => {
+    const prevLoginMax = process.env.RATE_LIMIT_LOGIN_MAX;
+    process.env.RATE_LIMIT_LOGIN_MAX = '2';
+    try {
+      const config = loadAppConfig(
+        {
+          DATABASE_URL: dbFilePath,
+          PAYPAL_MODE: 'mock',
+          APP_ENV: 'production'
+        },
+        { loadDotEnvFile: false }
+      );
+      const adapter = createPayPalAdapter({ mode: 'mock' });
+
+      // Simulate two independent serverless isolates (appInstanceA and appInstanceB) backed by the same DB repository
+      const appInstanceA = createApiApp(config, adapter, repo);
+      const appInstanceB = createApiApp(config, adapter, repo);
+
+      // Request 1 hits Instance A -> allowed (remaining: 1)
+      const r1 = await request(appInstanceA)
+        .post('/api/auth/login')
+        .set('X-Forwarded-For', '203.0.113.55')
+        .send({});
+      expect(r1.status).toBe(400);
+      expect(r1.headers['ratelimit-limit']).toBe('2');
+      expect(r1.headers['ratelimit-remaining']).toBe('1');
+
+      // Request 2 hits Instance B -> shares DB state from Instance A -> allowed (remaining: 0)
+      const r2 = await request(appInstanceB)
+        .post('/api/auth/login')
+        .set('X-Forwarded-For', '203.0.113.55')
+        .send({});
+      expect(r2.status).toBe(400);
+      expect(r2.headers['ratelimit-limit']).toBe('2');
+      expect(r2.headers['ratelimit-remaining']).toBe('0');
+
+      // Request 3 hits Instance A -> blocked with 429 RATE_LIMITED across instances
+      const r3 = await request(appInstanceA)
+        .post('/api/auth/login')
+        .set('X-Forwarded-For', '203.0.113.55')
+        .send({});
+      expect(r3.status).toBe(429);
+      expect(r3.body.error.code).toBe('RATE_LIMITED');
+      expect(Number(r3.headers['retry-after'])).toBeGreaterThanOrEqual(1);
+
+      // Verify fail-safe fallback when shared store throws (never fails open)
+      const brokenLimiter = createInMemoryRateLimiter({
+        windowMs: 60 * 1000,
+        max: 1,
+        message: 'Fallback limit reached',
+        scopePrefix: 'broken-test',
+        store: {
+          consumeRateLimit() {
+            throw new Error('Simulated DB store outage');
+          }
+        }
+      });
+
+      let allowed = 0;
+      const makeRes = () => {
+        let code = 200;
+        return {
+          setHeader() {},
+          status(c: number) {
+            code = c;
+            return { json() {} };
+          },
+          getCode: () => code
+        };
+      };
+      const reqObj = { ip: '198.51.100.7', socket: { remoteAddress: '198.51.100.7' } } as any;
+      const resA = makeRes();
+      brokenLimiter(reqObj, resA as any, () => {
+        allowed += 1;
+      });
+      expect(allowed).toBe(1);
+
+      const resB = makeRes();
+      brokenLimiter(reqObj, resB as any, () => {
+        allowed += 1;
+      });
+      expect(allowed).toBe(1);
+      expect(resB.getCode()).toBe(429);
+    } finally {
+      if (prevLoginMax === undefined) {
+        delete process.env.RATE_LIMIT_LOGIN_MAX;
+      } else {
+        process.env.RATE_LIMIT_LOGIN_MAX = prevLoginMax;
+      }
+    }
+  });
+
+  it('atomically increments, resets expired windows, throttles cleanup, and isolates route scopes in PostgreSQL (AsyncInvoicePilotRepository + pg.Pool)', async () => {
+    const memDb = newDb({ autoCreateForeignKeyIndices: true });
+    memDb.public.registerFunction({
+      name: 'length',
+      args: [DataType.text],
+      returns: DataType.integer,
+      implementation: (str: string) => (str ? str.length : 0)
+    });
+    const ddl = fs.readFileSync(
+      path.resolve(process.cwd(), 'migrations/001_initial_supabase_schema.sql'),
+      'utf-8'
+    );
+    memDb.public.query(ddl);
+
+    const { Pool } = memDb.adapters.createPg();
+    const pgPool = new Pool();
+    const poolAdapter = new PostgresPoolAdapter(pgPool);
+    const asyncRepo = new AsyncInvoicePilotRepository(poolAdapter);
+
+    // 1. Concurrent atomic increments on the same key across parallel calls
+    const baseNow = 1_700_000_000_000;
+    const windowMs = 60_000;
+    const concurrentResults = await Promise.all([
+      asyncRepo.consumeRateLimit('login:203.0.113.99', windowMs, baseNow),
+      asyncRepo.consumeRateLimit('login:203.0.113.99', windowMs, baseNow),
+      asyncRepo.consumeRateLimit('login:203.0.113.99', windowMs, baseNow)
+    ]);
+    const counts = concurrentResults.map((r) => r.count).sort((a, b) => a - b);
+    expect(counts).toEqual([1, 2, 3]);
+    expect(concurrentResults[0].resetAt).toBe(baseNow + windowMs);
+
+    // 2. Different route scopes (register, agent-chat, agent-prepare) do not collide with login
+    const registerHit = await asyncRepo.consumeRateLimit('register:203.0.113.99', windowMs, baseNow);
+    const chatHit = await asyncRepo.consumeRateLimit('agent-chat:203.0.113.99', windowMs, baseNow);
+    const prepareHit = await asyncRepo.consumeRateLimit('agent-prepare:203.0.113.99', windowMs, baseNow);
+    expect(registerHit.count).toBe(1);
+    expect(chatHit.count).toBe(1);
+    expect(prepareHit.count).toBe(1);
+
+    // 3. Window reset after expiration (nowMs > resetAt) resets count back to 1 and advances resetAt
+    const afterExpiryNow = baseNow + windowMs + 1;
+    const resetResult = await asyncRepo.consumeRateLimit(
+      'login:203.0.113.99',
+      windowMs,
+      afterExpiryNow
+    );
+    expect(resetResult.count).toBe(1);
+    expect(resetResult.resetAt).toBe(afterExpiryNow + windowMs);
+
+    await poolAdapter.close();
   });
 });
 

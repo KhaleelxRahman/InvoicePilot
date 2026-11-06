@@ -186,16 +186,26 @@ function parseInvoiceItemsInput(
   });
 }
 
+export interface SharedRateLimitStore {
+  consumeRateLimit?: (
+    key: string,
+    windowMs: number,
+    nowMs?: number
+  ) => { count: number; resetAt: number } | Promise<{ count: number; resetAt: number }>;
+}
+
 export interface RateLimitOptions {
   windowMs: number;
   max: number;
   message: string;
   code?: string;
+  scopePrefix?: string;
+  store?: SharedRateLimitStore;
   keyGenerator?: (req: Request) => string;
 }
 
 export function createInMemoryRateLimiter(options: RateLimitOptions) {
-  const { windowMs, max, message, code = 'RATE_LIMITED' } = options;
+  const { windowMs, max, message, code = 'RATE_LIMITED', scopePrefix = 'global', store } = options;
   const requests = new Map<string, { count: number; resetAt: number }>();
 
   // Prune expired records every 5 minutes
@@ -211,22 +221,25 @@ export function createInMemoryRateLimiter(options: RateLimitOptions) {
     (cleanupTimer as any).unref();
   }
 
-  return (req: Request, res: Response, next: NextFunction) => {
-    const rawIp = req.ip || req.socket?.remoteAddress || 'unknown-client';
-    const key = options.keyGenerator ? options.keyGenerator(req) : rawIp;
-
-    const now = Date.now();
+  function consumeFallbackInMemory(key: string, now: number): { count: number; resetAt: number } {
     let record = requests.get(key);
-
     if (!record || now > record.resetAt) {
       record = { count: 1, resetAt: now + windowMs };
       requests.set(key, record);
     } else {
       record.count += 1;
     }
+    return record;
+  }
 
+  function applyRateLimitDecision(
+    record: { count: number; resetAt: number },
+    now: number,
+    res: Response,
+    next: NextFunction
+  ): void {
     const remaining = Math.max(0, max - record.count);
-    const resetSeconds = Math.ceil((record.resetAt - now) / 1000);
+    const resetSeconds = Math.max(1, Math.ceil((record.resetAt - now) / 1000));
 
     res.setHeader('RateLimit-Limit', max);
     res.setHeader('RateLimit-Remaining', remaining);
@@ -246,6 +259,41 @@ export function createInMemoryRateLimiter(options: RateLimitOptions) {
     }
 
     next();
+  }
+
+  return (req: Request, res: Response, next: NextFunction) => {
+    const rawIp = req.ip || req.socket?.remoteAddress || 'unknown-client';
+    const baseKey = options.keyGenerator ? options.keyGenerator(req) : rawIp;
+    const scopedKey = `${scopePrefix}:${baseKey}`;
+    const now = Date.now();
+
+    if (store && typeof store.consumeRateLimit === 'function') {
+      try {
+        const resultOrPromise = store.consumeRateLimit(scopedKey, windowMs, now);
+        if (resultOrPromise && typeof (resultOrPromise as Promise<any>).then === 'function') {
+          (resultOrPromise as Promise<{ count: number; resetAt: number }>)
+            .then((record) => {
+              applyRateLimitDecision(record, now, res, next);
+            })
+            .catch(() => {
+              // Fail-safe fallback to local in-memory bucket if DB table is unavailable
+              const fallbackRecord = consumeFallbackInMemory(scopedKey, now);
+              applyRateLimitDecision(fallbackRecord, now, res, next);
+            });
+          return;
+        }
+        applyRateLimitDecision(resultOrPromise as { count: number; resetAt: number }, now, res, next);
+        return;
+      } catch {
+        // Fail-safe fallback to local in-memory bucket
+        const fallbackRecord = consumeFallbackInMemory(scopedKey, now);
+        applyRateLimitDecision(fallbackRecord, now, res, next);
+        return;
+      }
+    }
+
+    const record = consumeFallbackInMemory(scopedKey, now);
+    applyRateLimitDecision(record, now, res, next);
   };
 }
 
@@ -411,24 +459,40 @@ export function createApiApp(
     next();
   });
 
-  // Rate Limiters
+  // Rate Limiters (shared database-backed when database is configured, with fail-safe in-memory fallback)
   const defaultRateLimitMax = config.appEnv === 'test' ? 100 : 20;
+  const sharedRateLimitStore = isDbConfigured ? repo : undefined;
+
   const loginLimiter = createInMemoryRateLimiter({
     windowMs: 60 * 1000,
     max: Number(process.env.RATE_LIMIT_LOGIN_MAX ?? defaultRateLimitMax),
-    message: 'Too many login attempts. Please wait a minute before trying again.'
+    message: 'Too many login attempts. Please wait a minute before trying again.',
+    scopePrefix: 'login',
+    store: sharedRateLimitStore
   });
 
   const registerLimiter = createInMemoryRateLimiter({
     windowMs: 60 * 1000,
     max: Number(process.env.RATE_LIMIT_REGISTER_MAX ?? defaultRateLimitMax),
-    message: 'Too many registration requests. Please wait a minute.'
+    message: 'Too many registration requests. Please wait a minute.',
+    scopePrefix: 'register',
+    store: sharedRateLimitStore
   });
 
-  const agentLimiter = createInMemoryRateLimiter({
+  const agentChatLimiter = createInMemoryRateLimiter({
     windowMs: 60 * 1000,
     max: Number(process.env.RATE_LIMIT_AGENT_MAX ?? (config.appEnv === 'test' ? 100 : 30)),
-    message: 'AI assistant rate limit exceeded. Please wait a moment.'
+    message: 'AI assistant rate limit exceeded. Please wait a moment.',
+    scopePrefix: 'agent-chat',
+    store: sharedRateLimitStore
+  });
+
+  const agentPrepareLimiter = createInMemoryRateLimiter({
+    windowMs: 60 * 1000,
+    max: Number(process.env.RATE_LIMIT_AGENT_MAX ?? (config.appEnv === 'test' ? 100 : 30)),
+    message: 'AI assistant rate limit exceeded. Please wait a moment.',
+    scopePrefix: 'agent-prepare',
+    store: sharedRateLimitStore
   });
 
   app.use(express.json({ limit: '256kb' }));
@@ -2244,11 +2308,11 @@ export function createApiApp(
     }
   };
 
-  app.post('/api/agent/prepare-invoice', agentLimiter, async (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/agent/prepare-invoice', agentPrepareLimiter, async (req: Request, res: Response, next: NextFunction) => {
     void handleAgentTurn(req, res, next);
   });
 
-  app.post('/api/agent/chat', agentLimiter, async (req: Request, res: Response, next: NextFunction) => {
+  app.post('/api/agent/chat', agentChatLimiter, async (req: Request, res: Response, next: NextFunction) => {
     void handleAgentTurn(req, res, next);
   });
 

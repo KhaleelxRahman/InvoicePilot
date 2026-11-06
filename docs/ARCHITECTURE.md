@@ -32,7 +32,7 @@ flowchart LR
 ### Application Server (`src/server/app.ts`, `src/server/config.ts`)
 - **Security Headers & CSP**: Emits `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy`, `Content-Security-Policy`, and (in production) `Strict-Transport-Security`.
 - **CORS Allowlist**: Validates `Origin` against an exact allowlist (`config.appBaseUrl`, `https://invoicepilot-beryl.vercel.app`, dynamic `VERCEL_URL`, and in non-production `localhost:3000`/`5173`). Disallowed `OPTIONS` preflights fail with `403`.
-- **Rate Limiting**: Protects `/api/auth/login`, `/api/auth/register`, and `/api/agent/chat` using `req.ip` behind `app.set('trust proxy', 1)`.
+- **Rate Limiting**: Protects `/api/auth/login`, `/api/auth/register`, and `/api/agent/chat` using `req.ip` behind `app.set('trust proxy', 1)`, backed by the shared `rate_limits` database table across serverless instances with automatic fail-safe fallback to in-memory counters.
 - **Owner Isolation (`requireOwner`)**: Resolves the session token against the `sessions` table and scopes every read and write by `owner_user_id`. Rejects legacy `x-session-user-id` bypass headers with `401 UNAUTHORIZED`.
 - **Money & Math Integrity**: Represents all currency values in integer minor units (`subtotal_minor`, `tax_minor`, `total_minor`, `paid_amount_minor`) with explicit ISO 4217 currency exponents (`CURRENCY_EXPONENTS`).
 
