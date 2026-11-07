@@ -376,6 +376,9 @@ export function createApiApp(
       apiKey: config.geminiApiKey,
       model: config.geminiModel,
       timeoutMs: config.geminiTimeoutMs,
+      maxRetries: config.geminiMaxRetries,
+      totalBudgetMs: config.geminiTotalBudgetMs,
+      thinkingLevel: config.geminiThinkingLevel,
       providerMode: adapter.mode
     });
 

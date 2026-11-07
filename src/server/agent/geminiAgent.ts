@@ -142,10 +142,56 @@ export interface AgentExecutionResponse {
 export interface GeminiAgentConfig {
   apiKey: string;
   model: string;
+  /** Per-attempt HTTP timeout in milliseconds. */
   timeoutMs?: number;
+  /** Maximum retries for transient failures (timeout, 429, 5xx, network). */
+  maxRetries?: number;
+  /** Total wall-clock budget across all attempts; must stay below the serverless function limit. */
+  totalBudgetMs?: number;
+  /** Gemini 3 thinking level. 'low' keeps structured tool selection fast. */
+  thinkingLevel?: GeminiThinkingLevel;
+  /** Base backoff delay in ms (exponential with full jitter). */
+  retryBaseDelayMs?: number;
   baseUrl?: string;
   providerMode?: PayPalMode;
   fetchImpl?: typeof fetch;
+  /** Injectable sleep for deterministic tests. */
+  sleepImpl?: (ms: number) => Promise<void>;
+  /** Injectable random source for deterministic jitter in tests. */
+  randomImpl?: () => number;
+}
+
+export type GeminiThinkingLevel = 'minimal' | 'low' | 'medium' | 'high';
+
+export const DEFAULT_GEMINI_TIMEOUT_MS = 20000;
+export const DEFAULT_GEMINI_MAX_RETRIES = 2;
+export const DEFAULT_GEMINI_TOTAL_BUDGET_MS = 50000;
+export const DEFAULT_GEMINI_THINKING_LEVEL: GeminiThinkingLevel = 'low';
+
+/** Error raised for Gemini HTTP failures, carrying whether the failure is safe to retry. */
+class GeminiRequestError extends Error {
+  public constructor(
+    message: string,
+    public readonly retryable: boolean,
+    public readonly retryAfterMs?: number
+  ) {
+    super(message);
+    this.name = 'GeminiRequestError';
+  }
+}
+
+function parseRetryAfterMs(header: string | null): number | undefined {
+  if (!header) return undefined;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  const date = Date.parse(header);
+  if (Number.isFinite(date)) return Math.max(0, date - Date.now());
+  return undefined;
+}
+
+/** Gemini 3 models think dynamically at 'high' by default, which adds large latency; older models ignore thinkingLevel. */
+export function supportsThinkingLevel(model: string): boolean {
+  return /^gemini-3/i.test(model);
 }
 
 const PROMPT_INJECTION_PATTERNS: RegExp[] = [
@@ -341,6 +387,12 @@ export class GeminiInvoiceAgent {
   private readonly apiKey: string;
   private readonly model: string;
   private readonly timeoutMs: number;
+  private readonly maxRetries: number;
+  private readonly totalBudgetMs: number;
+  private readonly thinkingLevel: GeminiThinkingLevel;
+  private readonly retryBaseDelayMs: number;
+  private readonly sleepImpl: (ms: number) => Promise<void>;
+  private readonly randomImpl: () => number;
   private readonly baseUrl: string;
   private readonly providerMode: PayPalMode;
   private readonly fetchImpl: typeof fetch;
@@ -352,7 +404,13 @@ export class GeminiInvoiceAgent {
   ) {
     this.apiKey = (config.apiKey ?? '').trim();
     this.model = normalizeGeminiModelId(config.model);
-    this.timeoutMs = config.timeoutMs ?? 15000;
+    this.timeoutMs = config.timeoutMs ?? DEFAULT_GEMINI_TIMEOUT_MS;
+    this.maxRetries = Math.max(0, Math.min(4, config.maxRetries ?? DEFAULT_GEMINI_MAX_RETRIES));
+    this.totalBudgetMs = config.totalBudgetMs ?? DEFAULT_GEMINI_TOTAL_BUDGET_MS;
+    this.thinkingLevel = config.thinkingLevel ?? DEFAULT_GEMINI_THINKING_LEVEL;
+    this.retryBaseDelayMs = config.retryBaseDelayMs ?? 500;
+    this.sleepImpl = config.sleepImpl ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+    this.randomImpl = config.randomImpl ?? Math.random;
     this.baseUrl = (config.baseUrl ?? 'https://generativelanguage.googleapis.com').replace(
       /\/+$/,
       ''
@@ -471,6 +529,124 @@ export class GeminiInvoiceAgent {
     ].join('\n');
   }
 
+  /** generationConfig additions shared by both request paths (no temperature: Gemini 3 recommends defaults). */
+  private buildThinkingConfig(): Record<string, unknown> {
+    return supportsThinkingLevel(this.model)
+      ? { thinkingConfig: { thinkingLevel: this.thinkingLevel } }
+      : {};
+  }
+
+  /**
+   * POSTs a generateContent request with a per-attempt timeout and bounded retries.
+   * Only transient failures (timeout, network, HTTP 429/500/502/503/504) are retried, using
+   * exponential backoff with full jitter, bounded by totalBudgetMs. This performs no repository
+   * writes, so retrying can never create duplicate invoices or other side effects.
+   * Returns the parsed JSON payload of the first successful response.
+   */
+  private async postGenerateContentWithRetry(requestBody: unknown): Promise<unknown> {
+    const endpoint = `${this.baseUrl}/v1beta/models/${encodeURIComponent(
+      this.model
+    )}:generateContent`;
+    const bodyText = JSON.stringify(requestBody);
+    const startedAt = Date.now();
+    let attempt = 0;
+    let lastError: GeminiRequestError | undefined;
+
+    while (attempt <= this.maxRetries) {
+      const remaining = this.totalBudgetMs - (Date.now() - startedAt);
+      if (remaining < 1000) break;
+      const attemptTimeout = Math.min(this.timeoutMs, remaining);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), attemptTimeout);
+      attempt += 1;
+
+      try {
+        const response = await this.fetchImpl(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': this.apiKey
+          },
+          body: bodyText,
+          signal: controller.signal
+        });
+
+        if (!response.ok) {
+          const errBody = await response.text().catch(() => '');
+          const safeErr = redactSecretsInText(errBody, [this.apiKey]).slice(0, 240);
+          const suffix = safeErr ? ` (${safeErr})` : '';
+          if (response.status === 404) {
+            throw new GeminiRequestError(
+              `GEMINI_MODEL_NOT_FOUND: Gemini API model "${this.model}" was not found or is unavailable (HTTP 404)${suffix}`,
+              false
+            );
+          }
+          if (response.status === 429) {
+            throw new GeminiRequestError(
+              `GEMINI_RATE_LIMITED: Gemini API rate limit or quota exceeded (HTTP 429)${suffix}`,
+              true,
+              parseRetryAfterMs(response.headers.get('retry-after'))
+            );
+          }
+          throw new GeminiRequestError(
+            `GEMINI_HTTP_ERROR: Gemini API responded with HTTP ${response.status}${suffix}`,
+            [500, 502, 503, 504].includes(response.status)
+          );
+        }
+
+        try {
+          return await response.json();
+        } catch {
+          // Body was not JSON: deterministic, not retried
+          throw new GeminiRequestError(
+            'AGENT_OUTPUT_INVALID: Gemini returned a non-JSON response body.',
+            false
+          );
+        }
+      } catch (err) {
+        if (err instanceof GeminiRequestError) {
+          lastError = err;
+        } else if (err instanceof Error && err.name === 'AbortError') {
+          lastError = new GeminiRequestError(
+            `GEMINI_TIMEOUT: Gemini request timed out after ${attemptTimeout}ms (attempt ${attempt}).`,
+            true
+          );
+        } else if (err instanceof TypeError) {
+          // fetch network failure (DNS, connection reset)
+          lastError = new GeminiRequestError(
+            `GEMINI_NETWORK_ERROR: ${redactSecretsInText(err.message, [this.apiKey]).slice(0, 160)}`,
+            true
+          );
+        } else {
+          throw err;
+        }
+      } finally {
+        clearTimeout(timer);
+      }
+
+      if (!lastError.retryable || attempt > this.maxRetries) break;
+
+      const backoffCap = this.retryBaseDelayMs * 2 ** (attempt - 1);
+      const jittered = Math.floor(this.randomImpl() * backoffCap);
+      const delay = Math.min(
+        Math.max(jittered, lastError.retryAfterMs ?? 0),
+        8000
+      );
+      const remainingAfter = this.totalBudgetMs - (Date.now() - startedAt);
+      if (delay + 1000 >= remainingAfter) break;
+      await this.sleepImpl(delay);
+    }
+
+    const finalError =
+      lastError ??
+      new GeminiRequestError(
+        `GEMINI_TIMEOUT: Gemini request budget of ${this.totalBudgetMs}ms was exhausted.`,
+        false
+      );
+    const attemptsNote = attempt > 1 ? ` after ${attempt} attempts` : '';
+    throw new Error(`${finalError.message}${attemptsNote}`);
+  }
+
   private async callGeminiGenerateContent(
     userPrompt: string,
     systemInstruction: string
@@ -483,76 +659,38 @@ export class GeminiInvoiceAgent {
       throw new Error('GEMINI_UNAVAILABLE: GEMINI_API_KEY is not configured on the server.');
     }
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
-
-    try {
-      const endpoint = `${this.baseUrl}/v1beta/models/${encodeURIComponent(
-        this.model
-      )}:generateContent`;
-
-      const response = await this.fetchImpl(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': this.apiKey
+    {
+      const payload = (await this.postGenerateContentWithRetry({
+        systemInstruction: {
+          parts: [{ text: systemInstruction }]
         },
-        body: JSON.stringify({
-          systemInstruction: {
-            parts: [{ text: systemInstruction }]
-          },
-          contents: [
-            {
-              role: 'user',
-              parts: [
-                {
-                  text: `<untrusted_user_input>\n${userPrompt}\n</untrusted_user_input>`
-                }
-              ]
-            }
-          ],
-          tools: [
-            {
-              functionDeclarations: GEMINI_FUNCTION_DECLARATIONS
-            }
-          ],
-          generationConfig: {
-            responseMimeType: 'application/json',
-            responseSchema: GEMINI_RESPONSE_SCHEMA
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text: `<untrusted_user_input>\n${userPrompt}\n</untrusted_user_input>`
+              }
+            ]
           }
-        }),
-        signal: controller.signal
-      });
-
-      if (!response.ok) {
-        const errBody = await response.text().catch(() => '');
-        const safeErr = redactSecretsInText(errBody, [this.apiKey]).slice(0, 240);
-        if (response.status === 404) {
-          throw new Error(
-            `GEMINI_MODEL_NOT_FOUND: Gemini API model "${this.model}" was not found or is unavailable (HTTP 404)${
-              safeErr ? ` (${safeErr})` : ''
-            }`
-          );
+        ],
+        tools: [
+          {
+            functionDeclarations: GEMINI_FUNCTION_DECLARATIONS
+          }
+        ],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          responseSchema: GEMINI_RESPONSE_SCHEMA,
+          ...this.buildThinkingConfig()
         }
-        if (response.status === 429) {
-          throw new Error(
-            `GEMINI_RATE_LIMITED: Gemini API rate limit or quota exceeded (HTTP 429)${
-              safeErr ? ` (${safeErr})` : ''
-            }`
-          );
-        }
-        throw new Error(
-          `GEMINI_HTTP_ERROR: Gemini API responded with HTTP ${response.status}${
-            safeErr ? ` (${safeErr})` : ''
-          }`
-        );
-      }
-
-      const payload = (await response.json()) as {
+      })) as {
         candidates?: Array<{
+          finishReason?: string;
           content?: {
             parts?: Array<{
               text?: string;
+              thought?: boolean;
               functionCall?: {
                 name?: string;
                 args?: Record<string, unknown>;
@@ -562,9 +700,15 @@ export class GeminiInvoiceAgent {
         }>;
       };
 
-      const parts = payload.candidates?.[0]?.content?.parts ?? [];
+      // Ignore thought-summary parts; only answer parts are actionable
+      const parts = (payload?.candidates?.[0]?.content?.parts ?? []).filter((p) => !p.thought);
       if (parts.length === 0) {
-        throw new Error('AGENT_OUTPUT_INVALID: Gemini returned an empty candidate response.');
+        const finishReason = payload?.candidates?.[0]?.finishReason;
+        throw new Error(
+          `AGENT_OUTPUT_INVALID: Gemini returned an empty candidate response${
+            finishReason ? ` (finishReason=${finishReason})` : ''
+          }.`
+        );
       }
 
       const functionCallParts = parts.filter((p) => p.functionCall && p.functionCall.name);
@@ -650,15 +794,6 @@ export class GeminiInvoiceAgent {
         rawEnvelope: parsedJson,
         duplicateToolCallCount: 1
       };
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        throw new Error(
-          `GEMINI_TIMEOUT: Gemini request timed out after ${this.timeoutMs}ms.`
-        );
-      }
-      throw err;
-    } finally {
-      clearTimeout(timer);
     }
   }
 
@@ -813,8 +948,10 @@ export class GeminiInvoiceAgent {
           : safeMessage.startsWith('GEMINI_MODEL_NOT_FOUND:')
             ? 'The configured Gemini model was not found or is unavailable for this API key (HTTP 404). Your conventional invoice form remains ready so you can create or edit drafts without interruption.'
             : safeMessage.startsWith('GEMINI_TIMEOUT:')
-              ? 'Gemini structured agent timed out before completing the request. Please retry or use the conventional invoice form.'
-              : 'Gemini structured agent is currently unavailable or returned an invalid response. Your conventional invoice form remains ready so you can create or edit drafts without interruption.';
+              ? 'Gemini timed out before responding, even after automatic retries. Your prompt is preserved — please retry, or use the conventional invoice form.'
+              : safeMessage.startsWith('GEMINI_NETWORK_ERROR:')
+                ? 'Could not reach the Gemini API after automatic retries. Your prompt is preserved — please retry, or use the conventional invoice form.'
+                : 'Gemini structured agent is currently unavailable or returned an invalid response. Your conventional invoice form remains ready so you can create or edit drafts without interruption.';
 
       return {
         ok: false,
@@ -1499,14 +1636,7 @@ export class GeminiInvoiceAgent {
       };
     }
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
-
     try {
-      const endpoint = `${this.baseUrl}/v1beta/models/${encodeURIComponent(
-        this.model
-      )}:generateContent`;
-
       const systemInstruction = `You are InvoicePilot's tone-aware payment reminder drafting agent.
 Draft a concise, polite, or firm reminder email based ONLY on the provided invoice facts.
 Rules:
@@ -1528,13 +1658,16 @@ Rules:
         userNotes: input.userNotes ?? ''
       });
 
-      const response = await this.fetchImpl(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': this.apiKey
-        },
-        body: JSON.stringify({
+      let payload: {
+        candidates?: Array<{
+          content?: {
+            parts?: Array<{ text?: string; thought?: boolean }>;
+          };
+          safetyRatings?: unknown;
+        }>;
+      };
+      try {
+        payload = (await this.postGenerateContentWithRetry({
           systemInstruction: {
             parts: [{ text: systemInstruction }]
           },
@@ -1553,14 +1686,13 @@ Rules:
                 body: { type: 'STRING' }
               },
               required: ['subject', 'body']
-            }
+            },
+            ...this.buildThinkingConfig()
           }
-        }),
-        signal: controller.signal
-      });
-
-      if (!response.ok) {
-        if (response.status === 404) {
+        })) as typeof payload;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : '';
+        if (msg.startsWith('GEMINI_MODEL_NOT_FOUND:')) {
           console.warn(
             `[Gemini Reminder] Configured model "${this.model}" was not found or is unavailable (HTTP 404); using the conventional reminder fallback.`
           );
@@ -1573,17 +1705,8 @@ Rules:
         };
       }
 
-      const payload = (await response.json()) as {
-        candidates?: Array<{
-          content?: {
-            parts?: Array<{ text?: string }>;
-          };
-          safetyRatings?: unknown;
-        }>;
-      };
-
-      const candidate = payload.candidates?.[0];
-      const text = candidate?.content?.parts?.[0]?.text;
+      const candidate = payload?.candidates?.[0];
+      const text = (candidate?.content?.parts ?? []).find((p) => !p.thought && p.text)?.text;
       if (!text) {
         return {
           subject: fallback.subject,
@@ -1628,8 +1751,6 @@ Rules:
         tone: input.tone,
         usedFallback: true
       };
-    } finally {
-      clearTimeout(timer);
     }
   }
 }

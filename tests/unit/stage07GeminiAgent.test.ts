@@ -86,6 +86,7 @@ describe('Stage 07 — Constrained Gemini Structured Agent & Safety Evaluations'
       apiKey,
       model: 'gemini-3.8-flash',
       providerMode: 'mock',
+      sleepImpl: async () => {},
       fetchImpl: fetchMock as unknown as typeof fetch
     });
 
@@ -741,6 +742,7 @@ describe('Stage 07 — Constrained Gemini Structured Agent & Safety Evaluations'
       model: 'gemini-3.8-flash',
       providerMode: 'sandbox',
       timeoutMs: options?.timeoutMs,
+      sleepImpl: async () => {},
       fetchImpl: fetchMock as unknown as typeof fetch
     });
 

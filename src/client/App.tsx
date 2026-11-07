@@ -1790,6 +1790,9 @@ export function App() {
 
     setAgentLoading(true);
     setAgentError(null);
+    // Clear any previous outcome so a stale success is never shown for a new request.
+    // The prompt text itself is intentionally preserved so the user can retry.
+    setAgentResult(null);
     try {
       const res = await fetch('/api/agent/prepare-invoice', {
         method: 'POST',
@@ -2823,6 +2826,7 @@ export function App() {
                     className="action-btn"
                     data-testid="agent-submit-btn"
                     disabled={agentLoading}
+                    aria-busy={agentLoading}
                   >
                     {agentLoading ? 'Validating with Gemini...' : 'Run constrained agent'}
                   </button>
@@ -2886,7 +2890,9 @@ export function App() {
                   <div className="paper-preview-header">
                     <div>
                       <span className="approval-slip-highlight">
-                        SCHEMA-VALIDATED AGENT OUTCOME ({agentResult.toolUsed ?? 'none'})
+                        {agentResult.status === 'AGENT_ERROR'
+                          ? 'NO AGENT RESULT — NOTHING WAS CREATED OR SENT'
+                          : `SCHEMA-VALIDATED AGENT OUTCOME (${agentResult.toolUsed ?? 'none'})`}
                       </span>
                       <h3 style={{ margin: '0.25rem 0' }} className="serif-document">
                         Agent Response
@@ -3006,6 +3012,17 @@ export function App() {
 
                   {agentResult.fallbackToConventionalForm && (
                     <div className="btn-row" style={{ marginTop: '0.75rem' }}>
+                      {agentResult.status === 'AGENT_ERROR' && (
+                        <button
+                          type="button"
+                          className="secondary-btn"
+                          data-testid="agent-retry-btn"
+                          disabled={agentLoading || !agentPrompt.trim()}
+                          onClick={() => void handleAgentSubmit()}
+                        >
+                          {agentLoading ? 'Retrying…' : 'Retry agent request'}
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="action-btn"

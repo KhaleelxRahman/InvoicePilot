@@ -39,6 +39,9 @@ export interface AppConfig {
   geminiApiKey: string;
   geminiModel: string;
   geminiTimeoutMs: number;
+  geminiMaxRetries: number;
+  geminiTotalBudgetMs: number;
+  geminiThinkingLevel: 'minimal' | 'low' | 'medium' | 'high';
   paypalClientId: string;
   paypalClientSecret: string;
   paypalWebhookId: string;
@@ -77,9 +80,25 @@ export function loadAppConfig(
   const timeoutMs = Number.parseInt(merged.PAYPAL_TIMEOUT_MS ?? '15000', 10);
   const safeTimeoutMs = Number.isFinite(timeoutMs) && timeoutMs >= 100 ? timeoutMs : 15000;
 
-  const geminiTimeoutRaw = Number.parseInt(merged.GEMINI_TIMEOUT_MS ?? '15000', 10);
+  const geminiTimeoutRaw = Number.parseInt(merged.GEMINI_TIMEOUT_MS ?? '20000', 10);
   const safeGeminiTimeoutMs =
-    Number.isFinite(geminiTimeoutRaw) && geminiTimeoutRaw >= 100 ? geminiTimeoutRaw : 15000;
+    Number.isFinite(geminiTimeoutRaw) && geminiTimeoutRaw >= 100 ? geminiTimeoutRaw : 20000;
+
+  const geminiRetriesRaw = Number.parseInt(merged.GEMINI_MAX_RETRIES ?? '2', 10);
+  const safeGeminiMaxRetries =
+    Number.isFinite(geminiRetriesRaw) && geminiRetriesRaw >= 0 ? Math.min(geminiRetriesRaw, 4) : 2;
+
+  // Total Gemini budget must stay below vercel.json maxDuration (60s) to leave room for DB work.
+  const geminiBudgetRaw = Number.parseInt(merged.GEMINI_TOTAL_BUDGET_MS ?? '50000', 10);
+  const safeGeminiTotalBudgetMs =
+    Number.isFinite(geminiBudgetRaw) && geminiBudgetRaw >= 1000 ? Math.min(geminiBudgetRaw, 55000) : 50000;
+
+  const rawThinking = (merged.GEMINI_THINKING_LEVEL ?? 'low').trim().toLowerCase();
+  const geminiThinkingLevel = (['minimal', 'low', 'medium', 'high'] as const).includes(
+    rawThinking as 'low'
+  )
+    ? (rawThinking as 'minimal' | 'low' | 'medium' | 'high')
+    : 'low';
 
   const isServerless = Boolean(
     merged.VERCEL ||
@@ -111,6 +130,9 @@ export function loadAppConfig(
     geminiApiKey: (merged.GEMINI_API_KEY ?? '').trim(),
     geminiModel: normalizeGeminiModelId(merged.GEMINI_MODEL),
     geminiTimeoutMs: safeGeminiTimeoutMs,
+    geminiMaxRetries: safeGeminiMaxRetries,
+    geminiTotalBudgetMs: safeGeminiTotalBudgetMs,
+    geminiThinkingLevel,
     paypalClientId: (merged.PAYPAL_CLIENT_ID ?? '').trim(),
     paypalClientSecret: (merged.PAYPAL_CLIENT_SECRET ?? '').trim(),
     paypalWebhookId: (merged.PAYPAL_WEBHOOK_ID ?? '').trim(),

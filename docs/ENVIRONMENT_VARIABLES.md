@@ -20,7 +20,10 @@ This document lists every environment variable read by InvoicePilot in [`src/ser
 | `PAYPAL_WEBHOOK_ID` | **Yes (Webhooks)** | **Yes** | `""` | `src/server/config.ts#L91` | PayPal Sandbox Webhook ID for `/v1/notifications/verify-webhook-signature`. |
 | `GEMINI_API_KEY` | Optional | **Yes** | `""` | `src/server/config.ts#L86` | Google Gemini API key. Falls back to deterministic parser and manual form when unset. |
 | `GEMINI_MODEL` | Optional | No | `gemini-3.8-flash` | `src/server/config.ts#L108` | Gemini model identifier (automatically normalizes legacy `gemini-2.5-flash` / `gemini-1.5-flash` to `gemini-3.8-flash`). |
-| `GEMINI_TIMEOUT_MS` | Optional | No | `15000` | `src/server/config.ts#L56` | Timeout in milliseconds for Gemini API calls. |
+| `GEMINI_TIMEOUT_MS` | Optional | No | `20000` | `src/server/config.ts#L80` | Per-attempt timeout in milliseconds for Gemini API calls. |
+| `GEMINI_MAX_RETRIES` | Optional | No | `2` | `src/server/config.ts#L84` | Max bounded retries for transient timeout, 429, and 5xx errors. |
+| `GEMINI_TOTAL_BUDGET_MS` | Optional | No | `50000` | `src/server/config.ts#L88` | Overall wall-clock budget for Gemini request + retries (must be below 60s function limit). |
+| `GEMINI_THINKING_LEVEL` | Optional | No | `low` | `src/server/config.ts#L93` | Gemini 3 reasoning thinking level (`minimal`, `low`, `medium`, `high`). Low optimizes tool-calling speed. |
 | `PAYPAL_TIMEOUT_MS` | Optional | No | `15000` | `src/server/config.ts#L53` | Timeout in milliseconds for PayPal Sandbox HTTP calls. |
 | `PAYPAL_SANDBOX_INVOICER_EMAIL` | Optional | No | `undefined` | `src/server/config.ts#L92` | Optional PayPal Sandbox merchant email override. |
 | `PAYPAL_SANDBOX_RECIPIENT_EMAIL` | Optional | No | `sb-buyer-invoicepilot@personal.example.com` | `src/server/config.ts#L94` | Default buyer email for CLI sandbox verification. |
