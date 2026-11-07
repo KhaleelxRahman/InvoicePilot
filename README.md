@@ -3,16 +3,7 @@
 > **AI-Assisted Invoicing & Human-Approved Payment Workspace for Freelancers & Consultants**
 > *Built for the PayPal AI Hackathon — Build What's Next with PayPal and AI.*
 
-[![Live Deployment](https://img.shields.io/badge/Vercel-invoicepilot--beryl.vercel.app-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://invoicepilot-beryl.vercel.app)
-[![Demo Video](https://img.shields.io/badge/YouTube-Demo%20Video%20(02%3A56)-FF0000?style=for-the-badge&logo=youtube&logoColor=white)](https://youtu.be/Yapr-7xqlJo)
-[![GitHub Repository](https://img.shields.io/badge/GitHub-KhaleelxRahman%2FInvoicePilot-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/KhaleelxRahman/InvoicePilot)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
-[![Playwright E2E](https://img.shields.io/badge/Playwright-36%2F36%20Passed-brightgreen.svg?style=for-the-badge&logo=playwright&logoColor=white)](tests/e2e)
-[![Vitest Suite](https://img.shields.io/badge/Vitest-157%2F157%20Passed-brightgreen.svg?style=for-the-badge&logo=vitest&logoColor=white)](tests/unit)
-[![TypeScript 5.7](https://img.shields.io/badge/TypeScript-5.7-3178C6.svg?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Database: Supabase](https://img.shields.io/badge/Database-Supabase%20PostgreSQL-3ECF8E.svg?style=for-the-badge&logo=supabase&logoColor=white)](https://supabase.com/)
 
----
 
 ## Demo Video (02:56)
 
