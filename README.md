@@ -4,6 +4,7 @@
 > *Built for the PayPal AI Hackathon — Build What's Next with PayPal and AI.*
 
 [![Live Deployment](https://img.shields.io/badge/Vercel-invoicepilot--beryl.vercel.app-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://invoicepilot-beryl.vercel.app)
+[![Demo Video](https://img.shields.io/badge/YouTube-Demo%20Video%20(02%3A56)-FF0000?style=for-the-badge&logo=youtube&logoColor=white)](https://youtu.be/Yapr-7xqlJo)
 [![GitHub Repository](https://img.shields.io/badge/GitHub-KhaleelxRahman%2FInvoicePilot-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/KhaleelxRahman/InvoicePilot)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
 [![Playwright E2E](https://img.shields.io/badge/Playwright-36%2F36%20Passed-brightgreen.svg?style=for-the-badge&logo=playwright&logoColor=white)](tests/e2e)
@@ -13,9 +14,23 @@
 
 ---
 
+## Demo Video (02:56)
+
+Watch the official **2-minute 56-second** hackathon demonstration film showcasing InvoicePilot's full end-to-end workflow: natural-language invoice preparation with Google Gemini, the strict cryptographic Human Approval Gate, real PayPal Sandbox Invoicing v2 dispatch, client-aware reminder drafting, and live signature-verified webhook reconciliation.
+
+[![InvoicePilot Demo Video](https://img.youtube.com/vi/Yapr-7xqlJo/maxresdefault.jpg)](https://youtu.be/Yapr-7xqlJo)
+
+> **Official YouTube Demonstration:** [https://youtu.be/Yapr-7xqlJo](https://youtu.be/Yapr-7xqlJo)<br />
+> **Runtime:** Exactly 2 minutes 56 seconds (02:56)<br />
+> **Hackathon Track:** PayPal AI Hackathon 2026 — *Build What's Next with PayPal and AI*<br />
+> *Prototype Disclaimer: InvoicePilot is a working hackathon prototype. All payment transactions and API calls demonstrated run against the official PayPal Sandbox (`api-m.sandbox.paypal.com`). Live-money processing is intentionally excluded.*
+
+---
+
 ## Table of Contents
 
 - [InvoicePilot](#invoicepilot)
+  - [Demo Video (02:56)](#demo-video-0256)
   - [Table of Contents](#table-of-contents)
   - [1. Project Overview](#1-project-overview)
   - [2. Verified Product Features](#2-verified-product-features)
@@ -458,6 +473,7 @@ Expected healthy production response:
 
 ## 23. Documentation Index & License
 
+- **Official Demo Video (02:56)**: [YouTube Demonstration](https://youtu.be/Yapr-7xqlJo) | [FINAL_SUBMISSION_MANIFEST.md](FINAL_SUBMISSION_MANIFEST.md)
 - **Architecture & Boundaries**: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - **Vercel Deployment Runbook**: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
 - **Environment Variables Guide**: [docs/ENVIRONMENT_VARIABLES.md](docs/ENVIRONMENT_VARIABLES.md)
