@@ -151,18 +151,22 @@ describe('Gemini structured agent reliability (timeouts, retries, fallback, dupl
     expect(invoiceCount()).toBe(before + 1);
   });
 
-  it('retries transient 503 and network failures with exponential backoff before succeeding', async () => {
+  it('retries transient 503 with failover to a peer candidate model', async () => {
     let calls = 0;
-    const { agent, fetchMock, sleeps } = setup(async () => {
+    const urls: string[] = [];
+    const { agent, fetchMock, sleeps } = setup(async (url) => {
       calls += 1;
+      urls.push(String(url));
       if (calls === 1) return new Response('unavailable', { status: 503 });
-      if (calls === 2) throw new TypeError('fetch failed');
       return draftEnvelopeResponse();
     });
     const out = await agent.processPrompt(DEMO_TENANT_USER_ID, { prompt: 'Invoice Elena Vance $400' });
     expect(out.status).toBe('DRAFT_PREPARED');
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect(sleeps).toEqual([250, 500]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(sleeps).toEqual([250]);
+    expect(urls[0]).toContain('gemini-3.8-flash');
+    expect(urls[1]).toContain('gemini-3.5-flash-lite');
+    expect(out.modelMetadata.model).toBe('gemini-3.5-flash-lite');
   });
 
   it('returns AGENT_ERROR with GEMINI_TIMEOUT after repeated timeouts, bounded attempts, no draft created', async () => {

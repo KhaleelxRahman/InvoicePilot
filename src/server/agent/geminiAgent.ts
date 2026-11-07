@@ -173,12 +173,19 @@ class GeminiRequestError extends Error {
   public constructor(
     message: string,
     public readonly retryable: boolean,
+    public readonly statusCode?: number,
     public readonly retryAfterMs?: number
   ) {
     super(message);
     this.name = 'GeminiRequestError';
   }
 }
+
+export const CANDIDATE_FLASH_FALLBACK_MODELS: Record<string, string[]> = {
+  'gemini-3.8-flash': ['gemini-3.5-flash-lite', 'gemini-3.6-flash'],
+  'gemini-3.6-flash': ['gemini-3.5-flash-lite', 'gemini-3.8-flash'],
+  'gemini-3.5-flash-lite': ['gemini-3.6-flash', 'gemini-3.8-flash']
+};
 
 function parseRetryAfterMs(header: string | null): number | undefined {
   if (!header) return undefined;
@@ -543,11 +550,16 @@ export class GeminiInvoiceAgent {
    * writes, so retrying can never create duplicate invoices or other side effects.
    * Returns the parsed JSON payload of the first successful response.
    */
-  private async postGenerateContentWithRetry(requestBody: unknown): Promise<unknown> {
-    const endpoint = `${this.baseUrl}/v1beta/models/${encodeURIComponent(
-      this.model
-    )}:generateContent`;
-    const bodyText = JSON.stringify(requestBody);
+  private async postGenerateContentWithRetry(
+    requestBody: Record<string, unknown>
+  ): Promise<{ payload: unknown; actualModel: string }> {
+    const candidateModels = [
+      this.model,
+      ...((CANDIDATE_FLASH_FALLBACK_MODELS[this.model] || ['gemini-3.5-flash-lite', 'gemini-3.6-flash']).filter(
+        (m) => m !== this.model
+      ))
+    ];
+
     const startedAt = Date.now();
     let attempt = 0;
     let lastError: GeminiRequestError | undefined;
@@ -558,7 +570,30 @@ export class GeminiInvoiceAgent {
       const attemptTimeout = Math.min(this.timeoutMs, remaining);
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), attemptTimeout);
+
+      // On first attempt, use configured model.
+      // If previous attempt failed with 503 (model overloaded) or 429 and we have alternative models, failover to candidate model.
+      const currentModel =
+        lastError?.statusCode === 503 && attempt > 0 && candidateModels.length > 1
+          ? candidateModels[Math.min(attempt, candidateModels.length - 1)]
+          : this.model;
+
       attempt += 1;
+      const endpoint = `${this.baseUrl}/v1beta/models/${encodeURIComponent(
+        currentModel
+      )}:generateContent`;
+
+      const genConfig = {
+        ...(typeof requestBody.generationConfig === 'object' ? requestBody.generationConfig : {}),
+        ...(supportsThinkingLevel(currentModel)
+          ? { thinkingConfig: { thinkingLevel: this.thinkingLevel } }
+          : {})
+      };
+      const bodyWithThinking = {
+        ...requestBody,
+        generationConfig: genConfig
+      };
+      const bodyText = JSON.stringify(bodyWithThinking);
 
       try {
         const response = await this.fetchImpl(endpoint, {
@@ -577,25 +612,31 @@ export class GeminiInvoiceAgent {
           const suffix = safeErr ? ` (${safeErr})` : '';
           if (response.status === 404) {
             throw new GeminiRequestError(
-              `GEMINI_MODEL_NOT_FOUND: Gemini API model "${this.model}" was not found or is unavailable (HTTP 404)${suffix}`,
-              false
+              `GEMINI_MODEL_NOT_FOUND: Gemini API model "${currentModel}" was not found or is unavailable (HTTP 404)${suffix}`,
+              false,
+              404
             );
           }
           if (response.status === 429) {
             throw new GeminiRequestError(
               `GEMINI_RATE_LIMITED: Gemini API rate limit or quota exceeded (HTTP 429)${suffix}`,
               true,
+              429,
               parseRetryAfterMs(response.headers.get('retry-after'))
             );
           }
           throw new GeminiRequestError(
             `GEMINI_HTTP_ERROR: Gemini API responded with HTTP ${response.status}${suffix}`,
-            [500, 502, 503, 504].includes(response.status)
+            [500, 502, 503, 504].includes(response.status),
+            response.status
           );
         }
 
         try {
-          return await response.json();
+          return {
+            payload: await response.json(),
+            actualModel: currentModel
+          };
         } catch {
           // Body was not JSON: deterministic, not retried
           throw new GeminiRequestError(
@@ -654,13 +695,14 @@ export class GeminiInvoiceAgent {
     rawEnvelope: unknown;
     duplicateToolCallCount: number;
     unauthorizedToolAttempt?: string;
+    actualModel: string;
   }> {
     if (!this.isConfigured) {
       throw new Error('GEMINI_UNAVAILABLE: GEMINI_API_KEY is not configured on the server.');
     }
 
     {
-      const payload = (await this.postGenerateContentWithRetry({
+      const { payload: rawPayload, actualModel } = await this.postGenerateContentWithRetry({
         systemInstruction: {
           parts: [{ text: systemInstruction }]
         },
@@ -681,10 +723,11 @@ export class GeminiInvoiceAgent {
         ],
         generationConfig: {
           responseMimeType: 'application/json',
-          responseSchema: GEMINI_RESPONSE_SCHEMA,
-          ...this.buildThinkingConfig()
+          responseSchema: GEMINI_RESPONSE_SCHEMA
         }
-      })) as {
+      });
+
+      const payload = rawPayload as {
         candidates?: Array<{
           finishReason?: string;
           content?: {
@@ -724,7 +767,8 @@ export class GeminiInvoiceAgent {
           return {
             rawEnvelope: null,
             duplicateToolCallCount: functionCallParts.length,
-            unauthorizedToolAttempt: callName
+            unauthorizedToolAttempt: callName,
+            actualModel
           };
         }
 
@@ -751,7 +795,8 @@ export class GeminiInvoiceAgent {
 
         return {
           rawEnvelope: mappedEnvelope,
-          duplicateToolCallCount: functionCallParts.length
+          duplicateToolCallCount: functionCallParts.length,
+          actualModel
         };
       }
 
@@ -773,7 +818,8 @@ export class GeminiInvoiceAgent {
         if (Array.isArray(obj.toolCalls) && obj.toolCalls.length > 1) {
           return {
             rawEnvelope: obj.toolCalls[0],
-            duplicateToolCallCount: obj.toolCalls.length
+            duplicateToolCallCount: obj.toolCalls.length,
+            actualModel
           };
         }
         if (
@@ -785,14 +831,16 @@ export class GeminiInvoiceAgent {
           return {
             rawEnvelope: null,
             duplicateToolCallCount: 1,
-            unauthorizedToolAttempt: obj.toolName
+            unauthorizedToolAttempt: obj.toolName,
+            actualModel
           };
         }
       }
 
       return {
         rawEnvelope: parsedJson,
-        duplicateToolCallCount: 1
+        duplicateToolCallCount: 1,
+        actualModel
       };
     }
   }
@@ -894,6 +942,7 @@ export class GeminiInvoiceAgent {
       rawEnvelope: unknown;
       duplicateToolCallCount: number;
       unauthorizedToolAttempt?: string;
+      actualModel: string;
     };
 
     try {
@@ -1062,7 +1111,8 @@ export class GeminiInvoiceAgent {
       maxAmountMinor,
       defaultCurrency,
       defaultPaymentTermsDays,
-      input.correlationId
+      input.correlationId,
+      callResult.actualModel
     );
 
     if (input.idempotencyKey && response.ok) {
@@ -1079,11 +1129,12 @@ export class GeminiInvoiceAgent {
     maxAmountMinor: number,
     defaultCurrency: string,
     defaultPaymentTermsDays: number,
-    correlationId?: string
+    correlationId?: string,
+    actualModel?: string
   ): Promise<AgentExecutionResponse> {
     const modelMetadata = {
       provider: 'gemini' as const,
-      model: this.model,
+      model: actualModel ?? this.model,
       configured: this.isConfigured
     };
 
@@ -1658,16 +1709,19 @@ Rules:
         userNotes: input.userNotes ?? ''
       });
 
-      let payload: {
-        candidates?: Array<{
-          content?: {
-            parts?: Array<{ text?: string; thought?: boolean }>;
-          };
-          safetyRatings?: unknown;
-        }>;
+      let payloadResult: {
+        payload: {
+          candidates?: Array<{
+            content?: {
+              parts?: Array<{ text?: string; thought?: boolean }>;
+            };
+            safetyRatings?: unknown;
+          }>;
+        };
+        actualModel: string;
       };
       try {
-        payload = (await this.postGenerateContentWithRetry({
+        const rawRes = await this.postGenerateContentWithRetry({
           systemInstruction: {
             parts: [{ text: systemInstruction }]
           },
@@ -1686,10 +1740,10 @@ Rules:
                 body: { type: 'STRING' }
               },
               required: ['subject', 'body']
-            },
-            ...this.buildThinkingConfig()
+            }
           }
-        })) as typeof payload;
+        });
+        payloadResult = rawRes as typeof payloadResult;
       } catch (err) {
         const msg = err instanceof Error ? err.message : '';
         if (msg.startsWith('GEMINI_MODEL_NOT_FOUND:')) {
@@ -1705,7 +1759,7 @@ Rules:
         };
       }
 
-      const candidate = payload?.candidates?.[0];
+      const candidate = payloadResult.payload?.candidates?.[0];
       const text = (candidate?.content?.parts ?? []).find((p) => !p.thought && p.text)?.text;
       if (!text) {
         return {
@@ -1740,7 +1794,7 @@ Rules:
         tone: input.tone,
         usedFallback: false,
         modelMetadata: {
-          model: this.model,
+          model: payloadResult.actualModel ?? this.model,
           safetyRatings: candidate?.safetyRatings
         }
       };
